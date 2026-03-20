@@ -33,6 +33,8 @@ set(PROJECT_SOURCES
         src/datasource/FileDataSource.cpp
         src/export/DataExporter.h
         src/export/DataExporter.cpp
+        src/parser/StreamParser.h
+        src/parser/StreamParser.cpp
         src/worker/ParseWorker.h
         src/worker/ParseWorker.cpp
         resource/fonts.qrc

@@ -13,18 +13,28 @@
 
 #include <QApplication>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QSerialPort>
-#include <QTimer>
 
 Widget::Widget(QWidget *parent) : QWidget(parent), ui(new Ui::Widget) {
     ui->setupUi(this);
     initStyle();
 
     m_serialManager = new SerialPortManager(this);
+    m_streamParser = new StreamParser(this);
 
+    // Config management
     connect(ui->btnBrowseConfig, &QPushButton::clicked, this, &Widget::onBrowseConfig);
-    connect(ui->btnLoadConfig, &QPushButton::clicked, this, &Widget::onLoadConfig);
+    connect(ui->btnAddConfig, &QPushButton::clicked, this, &Widget::onAddConfig);
+    connect(ui->btnRemoveConfig, &QPushButton::clicked, this, &Widget::onRemoveConfig);
+    connect(ui->listConfigs, &QListWidget::currentRowChanged, this,
+            &Widget::onConfigSelectionChanged);
+    connect(ui->chkEndFrame, &QCheckBox::toggled, this, &Widget::onEndFrameToggled);
+    connect(ui->btnBrowseAutoSaveDir, &QPushButton::clicked, this,
+            &Widget::onBrowseAutoSaveDir);
+
+    // Data source
     connect(ui->radioSerial, &QRadioButton::toggled, this, &Widget::onSourceChanged);
     connect(ui->radioFile, &QRadioButton::toggled, this, &Widget::onSourceChanged);
     connect(ui->btnRefreshPorts, &QPushButton::clicked, this, &Widget::onRefreshPorts);
@@ -35,8 +45,17 @@ Widget::Widget(QWidget *parent) : QWidget(parent), ui(new Ui::Widget) {
             &Widget::onSerialDataReceived);
     connect(m_serialManager, &SerialPortManager::errorOccurred, this,
             &Widget::onSerialError);
+
+    // Parse & export
     connect(ui->btnParse, &QPushButton::clicked, this, &Widget::onParse);
     connect(ui->btnExport, &QPushButton::clicked, this, &Widget::onExport);
+
+    // StreamParser signals
+    connect(m_streamParser, &StreamParser::frameParsed, this, &Widget::onFrameParsed);
+    connect(m_streamParser, &StreamParser::endFrameDetected, this,
+            &Widget::onEndFrameDetected);
+    connect(m_streamParser, &StreamParser::autoSaveCompleted, this,
+            &Widget::onAutoSaveCompleted);
 
     initSerialUI();
     onSourceChanged();
@@ -139,6 +158,19 @@ void Widget::initStyle() {
         QRadioButton {
             spacing: 6px;
         }
+        QListWidget {
+            border: 1px solid #c0c0c0;
+            border-radius: 4px;
+            background: white;
+            font-size: 12px;
+        }
+        QListWidget::item {
+            padding: 3px 6px;
+        }
+        QListWidget::item:selected {
+            background: #0078d4;
+            color: white;
+        }
     )");
 }
 
@@ -155,6 +187,8 @@ void Widget::initSerialUI() {
     onRefreshPorts();
 }
 
+// ─── Config management ───
+
 void Widget::onBrowseConfig() {
     QString filePath = QFileDialog::getOpenFileName(
         this, "选择配置文件", QString(),
@@ -163,35 +197,108 @@ void Widget::onBrowseConfig() {
         ui->editConfigPath->setText(filePath);
 }
 
-void Widget::onLoadConfig() {
+void Widget::onAddConfig() {
     QString path = ui->editConfigPath->text();
     if (path.isEmpty()) {
         QMessageBox::warning(this, "提示", "请先选择配置文件");
         return;
     }
 
+    QString name = QFileInfo(path).baseName();
+
+    // Check duplicate
+    for (const auto &c : m_streamParser->configs()) {
+        if (c.name == name) {
+            QMessageBox::warning(this, "提示", QString("配置 \"%1\" 已存在").arg(name));
+            return;
+        }
+    }
+
     QString errorMsg;
-    m_config = ConfigParser::loadConfig(path, &errorMsg);
+    FrameConfig config = ConfigParser::loadConfig(path, &errorMsg);
     if (!errorMsg.isEmpty()) {
         QMessageBox::critical(this, "加载失败", errorMsg);
-        m_configLoaded = false;
-        updateParseButton();
         return;
     }
 
-    m_configLoaded = true;
-    m_parser.setConfig(m_config);
+    ConfigEntry entry{name, path, config, false};
+    m_streamParser->addConfig(entry);
+    ui->listConfigs->addItem(name);
+    ui->editConfigPath->clear();
     updateParseButton();
-    setStatus(QString("配置已加载: %1 个字段, 帧大小 %2 字节")
-                  .arg(m_config.fields.size())
-                  .arg(m_config.totalFrameSize()));
+    setStatus(QString("已添加配置: %1 (%2字段, %3字节/帧)")
+                  .arg(name)
+                  .arg(config.fields.size())
+                  .arg(config.totalFrameSize()));
 }
+
+void Widget::onRemoveConfig() {
+    auto *item = ui->listConfigs->currentItem();
+    if (!item)
+        return;
+    QString name = item->text().split(" ").first(); // strip suffix like " [结束帧]"
+    m_streamParser->removeConfig(name);
+    delete ui->listConfigs->takeItem(ui->listConfigs->currentRow());
+    updateParseButton();
+    setStatus(QString("已移除配置: %1").arg(name));
+}
+
+void Widget::onConfigSelectionChanged() {
+    auto *item = ui->listConfigs->currentItem();
+    if (!item) {
+        ui->chkEndFrame->setEnabled(false);
+        ui->chkEndFrame->setChecked(false);
+        return;
+    }
+    ui->chkEndFrame->setEnabled(true);
+    QString name = item->text().split(" ").first();
+    for (const auto &c : m_streamParser->configs()) {
+        if (c.name == name) {
+            ui->chkEndFrame->blockSignals(true);
+            ui->chkEndFrame->setChecked(c.isEndFrame);
+            ui->chkEndFrame->blockSignals(false);
+            return;
+        }
+    }
+}
+
+void Widget::onEndFrameToggled(bool checked) {
+    auto *item = ui->listConfigs->currentItem();
+    if (!item)
+        return;
+    QString name = item->text().split(" ").first();
+
+    if (checked) {
+        m_streamParser->setEndFrameConfig(name);
+        // Update all list items display
+        for (int i = 0; i < ui->listConfigs->count(); ++i) {
+            auto *it = ui->listConfigs->item(i);
+            QString n = it->text().split(" ").first();
+            it->setText(n == name ? name + " [结束帧]" : n);
+        }
+    } else {
+        m_streamParser->setEndFrameConfig("");
+        item->setText(name);
+    }
+}
+
+void Widget::onBrowseAutoSaveDir() {
+    QString dir =
+        QFileDialog::getExistingDirectory(this, "选择自动保存目录", m_streamParser->autoSaveDir());
+    if (!dir.isEmpty()) {
+        ui->editAutoSaveDir->setText(dir);
+        m_streamParser->setAutoSaveDir(dir);
+    }
+}
+
+// ─── Data source ───
 
 void Widget::onSourceChanged() {
     if (ui->radioSerial->isChecked())
         ui->stackedSource->setCurrentIndex(1);
     else
         ui->stackedSource->setCurrentIndex(0);
+    updateParseButton();
 }
 
 void Widget::onRefreshPorts() {
@@ -231,13 +338,22 @@ void Widget::onOpenPort() {
         ui->btnClosePort->setEnabled(true);
         ui->labelSerialStatus->setText("已连接 - " + config.portName);
         m_rawData.clear();
+        m_streamParser->resetStream();
+
+        bool hasConfigs = !m_streamParser->configs().isEmpty();
+        m_streamingActive = ui->chkStreamParse->isChecked() && hasConfigs;
+
+        if (m_streamingActive)
+            setStatus("实时解析模式已启动 - " + config.portName);
+        else
+            setStatus("串口已打开: " + config.portName);
         updateParseButton();
-        setStatus("串口已打开: " + config.portName);
     }
 }
 
 void Widget::onClosePort() {
     m_serialManager->closePort();
+    m_streamingActive = false;
     ui->btnOpenPort->setEnabled(true);
     ui->btnClosePort->setEnabled(false);
     ui->labelSerialStatus->setText("未连接");
@@ -253,9 +369,47 @@ void Widget::onBrowseDataFile() {
     }
 }
 
+// ─── Serial data ───
+
+void Widget::onSerialDataReceived(const QByteArray &data) {
+    if (m_streamingActive && !m_streamParser->configs().isEmpty()) {
+        m_streamParser->feedData(data);
+    } else {
+        m_rawData.append(data);
+        updateParseButton();
+        setStatus(QString("串口接收中... 已缓存 %1 字节").arg(m_rawData.size()));
+    }
+}
+
+void Widget::onSerialError(const QString &msg) {
+    QMessageBox::warning(this, "串口错误", msg);
+}
+
+// ─── StreamParser signals ───
+
+void Widget::onFrameParsed(const ParsedFrame &frame, const QString &configName) {
+    int total = 0;
+    for (const auto &frames : m_streamParser->accumulatedFrames())
+        total += frames.size();
+    setStatus(QString("实时解析中... 已解析 %1 帧 (当前: %2 #%3)")
+                  .arg(total)
+                  .arg(configName)
+                  .arg(frame.frameIndex));
+}
+
+void Widget::onEndFrameDetected() {
+    setStatus("检测到结束帧，正在自动保存...");
+}
+
+void Widget::onAutoSaveCompleted(const QStringList &savedFiles) {
+    setStatus(QString("自动保存完成: %1 个文件").arg(savedFiles.size()));
+}
+
+// ─── Parse ───
+
 void Widget::onParse() {
-    if (!m_configLoaded) {
-        QMessageBox::warning(this, "提示", "请先加载配置文件");
+    if (m_streamParser->configs().isEmpty()) {
+        QMessageBox::warning(this, "提示", "请先添加配置文件");
         return;
     }
 
@@ -267,8 +421,6 @@ void Widget::onParse() {
             QMessageBox::warning(this, "提示", "请先选择数据文件");
             return;
         }
-
-        // Prevent re-entry while a worker is running
         if (m_workerThread) {
             QMessageBox::warning(this, "提示", "解析正在进行中，请稍候");
             return;
@@ -276,61 +428,56 @@ void Widget::onParse() {
 
         setParsingUi(true);
 
-        // Create worker + thread
         m_workerThread = new QThread(this);
         m_worker = new ParseWorker();
-        m_worker->setConfig(m_config);
+        m_worker->setConfigs(m_streamParser->configs());
         m_worker->moveToThread(m_workerThread);
 
-        // Start work when thread starts
         connect(m_workerThread, &QThread::started, m_worker,
                 [worker = m_worker, path]() { worker->process(path); });
 
-        // Progress updates (queued connection, safe for UI)
         connect(m_worker, &ParseWorker::progress, this,
                 [this](int pct, const QString &status) {
                     ui->progressBar->setValue(pct);
                     setStatus(status);
                 });
 
-        // Finished handler
         connect(m_worker, &ParseWorker::finished, this,
                 [this](bool success, const QString &errorMsg) {
                     if (success) {
-                        // Move results from worker to widget
                         m_rawData = std::move(m_worker->m_rawData);
-                        m_parsedFrames = std::move(m_worker->m_frames);
+                        m_parsedFramesByConfig = std::move(m_worker->m_framesByConfig);
 
-                        setStatus(QString("解析完成: %1 帧, 共 %2 字节")
-                                      .arg(m_parsedFrames.size())
-                                      .arg(m_rawData.size()));
-                        ui->btnExport->setEnabled(!m_parsedFrames.isEmpty());
+                        int total = 0;
+                        for (const auto &f : m_parsedFramesByConfig)
+                            total += f.size();
 
-                        if (m_parsedFrames.isEmpty()) {
-                            QMessageBox::information(this, "解析结果",
-                                                     "未找到有效帧");
+                        setStatus(
+                            QString("解析完成: %1 帧, 共 %2 字节").arg(total).arg(m_rawData.size()));
+                        ui->btnExport->setEnabled(total > 0);
+
+                        if (total == 0) {
+                            QMessageBox::information(this, "解析结果", "未找到有效帧");
                         } else {
-                            showResultDialog(m_parsedFrames);
+                            showResultDialog(m_parsedFramesByConfig);
                         }
                     } else {
                         QMessageBox::critical(this, "解析失败", errorMsg);
                     }
 
-                    // Clean up thread
                     m_workerThread->quit();
                     m_workerThread->wait();
                     m_worker->deleteLater();
                     m_workerThread->deleteLater();
                     m_worker = nullptr;
                     m_workerThread = nullptr;
-
                     setParsingUi(false);
                 });
 
         m_workerThread->start();
 
     } else {
-        // Serial mode: parse directly in UI thread (data is small)
+        // Serial non-streaming mode
         if (m_serialManager->isOpen())
             m_rawData = m_serialManager->takeBuffer();
 
@@ -339,67 +486,111 @@ void Widget::onParse() {
             return;
         }
 
-        m_parsedFrames = m_parser.parse(m_rawData);
-        setStatus(QString("解析完成: %1 帧, 共 %2 字节")
-                      .arg(m_parsedFrames.size())
-                      .arg(m_rawData.size()));
+        m_parsedFramesByConfig = m_streamParser->parseBatch(m_rawData);
 
-        ui->btnExport->setEnabled(!m_parsedFrames.isEmpty());
+        int total = 0;
+        for (const auto &f : m_parsedFramesByConfig)
+            total += f.size();
 
-        if (m_parsedFrames.isEmpty()) {
+        setStatus(QString("解析完成: %1 帧, 共 %2 字节").arg(total).arg(m_rawData.size()));
+        ui->btnExport->setEnabled(total > 0);
+
+        if (total == 0) {
             QMessageBox::information(this, "解析结果", "未找到有效帧");
         } else {
-            showResultDialog(m_parsedFrames);
+            showResultDialog(m_parsedFramesByConfig);
         }
     }
 }
 
-void Widget::setParsingUi(bool parsing) {
-    ui->progressBar->setVisible(parsing);
-    ui->progressBar->setValue(0);
-    ui->btnParse->setEnabled(!parsing);
-    ui->btnExport->setEnabled(!parsing && !m_parsedFrames.isEmpty());
-    ui->btnLoadConfig->setEnabled(!parsing);
-    ui->btnBrowseConfig->setEnabled(!parsing);
-    ui->btnBrowseDataFile->setEnabled(!parsing);
-}
+// ─── Export ───
 
 void Widget::onExport() {
-    if (m_parsedFrames.isEmpty()) {
+    int total = 0;
+    for (const auto &f : m_parsedFramesByConfig)
+        total += f.size();
+
+    if (total == 0) {
         QMessageBox::warning(this, "提示", "没有可导出的数据,请先解析");
         return;
     }
 
-    QString filePath =
-        QFileDialog::getSaveFileName(this, "导出结果", QString(), "文本文件 (*.txt)");
-    if (filePath.isEmpty())
-        return;
+    const auto &configs = m_streamParser->configs();
 
-    QString errorMsg;
-    if (DataExporter::exportToTxt(filePath, m_parsedFrames, m_config, &errorMsg)) {
-        setStatus("导出成功: " + filePath);
-        QMessageBox::information(
-            this, "导出成功",
-            QString("已导出 %1 帧到:\n%2").arg(m_parsedFrames.size()).arg(filePath));
+    // Count configs with actual frames
+    int configsWithFrames = 0;
+    QString singleConfigName;
+    for (auto it = m_parsedFramesByConfig.constBegin(); it != m_parsedFramesByConfig.constEnd();
+         ++it) {
+        if (!it.value().isEmpty()) {
+            configsWithFrames++;
+            singleConfigName = it.key();
+        }
+    }
+
+    if (configsWithFrames == 1) {
+        // Single config: save as single file
+        QString filePath =
+            QFileDialog::getSaveFileName(this, "导出结果", QString(), "文本文件 (*.txt)");
+        if (filePath.isEmpty())
+            return;
+
+        FrameConfig fc;
+        for (const auto &c : configs)
+            if (c.name == singleConfigName) {
+                fc = c.config;
+                break;
+            }
+
+        QString errorMsg;
+        if (DataExporter::exportToTxt(filePath, m_parsedFramesByConfig[singleConfigName], fc,
+                                      &errorMsg)) {
+            setStatus("导出成功: " + filePath);
+            QMessageBox::information(this, "导出成功",
+                                     QString("已导出 %1 帧到:\n%2").arg(total).arg(filePath));
+        } else {
+            QMessageBox::critical(this, "导出失败", errorMsg);
+        }
     } else {
-        QMessageBox::critical(this, "导出失败", errorMsg);
+        // Multiple configs: save to directory
+        QString dir = QFileDialog::getExistingDirectory(this, "选择导出目录");
+        if (dir.isEmpty())
+            return;
+
+        QMap<QString, FrameConfig> configMap;
+        QString endFrameName;
+        for (const auto &c : configs) {
+            configMap[c.name] = c.config;
+            if (c.isEndFrame)
+                endFrameName = c.name;
+        }
+
+        QString errorMsg;
+        QStringList saved = DataExporter::autoSaveMultiConfig(
+            dir, m_parsedFramesByConfig, configMap, endFrameName, &errorMsg);
+
+        if (!errorMsg.isEmpty()) {
+            QMessageBox::critical(this, "导出失败", errorMsg);
+        } else {
+            setStatus(QString("导出成功: %1 个文件").arg(saved.size()));
+            QMessageBox::information(
+                this, "导出成功",
+                QString("已导出 %1 帧到 %2 个文件:\n%3")
+                    .arg(total)
+                    .arg(saved.size())
+                    .arg(saved.join("\n")));
+        }
     }
 }
 
-void Widget::onSerialDataReceived(const QByteArray &data) {
-    m_rawData.append(data);
-    updateParseButton();
-    setStatus(QString("串口接收中... 已缓存 %1 字节").arg(m_rawData.size()));
-}
-
-void Widget::onSerialError(const QString &msg) {
-    QMessageBox::warning(this, "串口错误", msg);
-}
+// ─── UI helpers ───
 
 void Widget::updateParseButton() {
+    bool hasConfigs = !m_streamParser->configs().isEmpty();
     bool hasData = !m_rawData.isEmpty() || m_serialManager->isOpen() ||
                    (ui->radioFile->isChecked() && !ui->editDataFilePath->text().isEmpty());
-    ui->btnParse->setEnabled(m_configLoaded && hasData);
+    bool isStreaming = m_streamingActive && ui->radioSerial->isChecked();
+    ui->btnParse->setEnabled(hasConfigs && hasData && !isStreaming && !m_workerThread);
 }
 
 QString Widget::formatFieldValue(const ParsedField &pf) {
@@ -420,33 +611,55 @@ QString Widget::formatFieldValue(const ParsedField &pf) {
     }
 }
 
-void Widget::showResultDialog(const QVector<ParsedFrame> &frames) {
-    // Collect DATA field names in config order
-    QStringList dataFieldNames;
-    for (const auto &field : m_config.fields) {
-        if (field.fieldType == FieldType::DATA)
-            dataFieldNames << field.name;
-    }
+void Widget::showResultDialog(const QMap<QString, QVector<ParsedFrame>> &framesByConfig) {
+    const auto &configs = m_streamParser->configs();
+    int grandTotal = 0;
+    QString msg;
 
-    // Build example text from first frame only
-    const auto &frame = frames.first();
-    QString detail;
-    for (const auto &name : dataFieldNames) {
-        for (const auto &pf : frame.fields) {
-            if (pf.name == name && pf.fieldType == FieldType::DATA) {
-                detail += QString("  %1 = %2\n").arg(name, formatFieldValue(pf));
-                break;
+    for (auto it = framesByConfig.constBegin(); it != framesByConfig.constEnd(); ++it) {
+        const QString &configName = it.key();
+        const auto &frames = it.value();
+        if (frames.isEmpty())
+            continue;
+        grandTotal += frames.size();
+
+        msg += QString("[%1] %2 帧\n").arg(configName).arg(frames.size());
+
+        // Show first frame example
+        const auto &frame = frames.first();
+        for (const auto &entry : configs) {
+            if (entry.name != configName)
+                continue;
+            for (const auto &field : entry.config.fields) {
+                if (field.fieldType != FieldType::DATA)
+                    continue;
+                for (const auto &pf : frame.fields) {
+                    if (pf.name == field.name && pf.fieldType == FieldType::DATA) {
+                        msg += QString("  %1 = %2\n").arg(field.name, formatFieldValue(pf));
+                        break;
+                    }
+                }
             }
+            break;
         }
+        msg += "\n";
     }
 
-    QString msg = QString("解析完成，共 %1 帧\n\n"
-                          "--- 第 1 帧示例 ---\n%2\n"
-                          "请使用「导出」按钮将全部结果保存为 TXT 文件。")
-                      .arg(frames.size())
-                      .arg(detail);
-
-    QMessageBox::information(this, "解析结果", msg);
+    QMessageBox::information(
+        this, "解析结果",
+        QString("解析完成，共 %1 帧\n\n%2请使用「导出」按钮将结果保存为 TXT 文件。")
+            .arg(grandTotal)
+            .arg(msg));
 }
 
 void Widget::setStatus(const QString &msg) { ui->labelStatus->setText(msg); }
+
+void Widget::setParsingUi(bool parsing) {
+    ui->progressBar->setVisible(parsing);
+    ui->progressBar->setValue(0);
+    ui->btnParse->setEnabled(!parsing);
+    ui->btnExport->setEnabled(!parsing);
+    ui->btnAddConfig->setEnabled(!parsing);
+    ui->btnBrowseConfig->setEnabled(!parsing);
+    ui->btnBrowseDataFile->setEnabled(!parsing);
+}

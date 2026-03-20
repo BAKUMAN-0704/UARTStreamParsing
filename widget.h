@@ -3,7 +3,8 @@
 
 #include "src/config/FrameFieldDef.h"
 #include "src/datasource/SerialPortManager.h"
-#include "src/parser/FrameParser.h"
+#include "src/parser/StreamParser.h"
+#include <QMap>
 #include <QThread>
 #include <QWidget>
 
@@ -24,7 +25,11 @@ public:
 
 private Q_SLOTS:
     void onBrowseConfig();
-    void onLoadConfig();
+    void onAddConfig();
+    void onRemoveConfig();
+    void onConfigSelectionChanged();
+    void onEndFrameToggled(bool checked);
+    void onBrowseAutoSaveDir();
     void onSourceChanged();
     void onRefreshPorts();
     void onOpenPort();
@@ -34,23 +39,26 @@ private Q_SLOTS:
     void onExport();
     void onSerialDataReceived(const QByteArray &data);
     void onSerialError(const QString &msg);
+    void onFrameParsed(const ParsedFrame &frame, const QString &configName);
+    void onEndFrameDetected();
+    void onAutoSaveCompleted(const QStringList &savedFiles);
 
 private:
     void initSerialUI();
     void initStyle();
     void updateParseButton();
-    void showResultDialog(const QVector<ParsedFrame> &frames);
+    void showResultDialog(const QMap<QString, QVector<ParsedFrame>> &framesByConfig);
     void setStatus(const QString &msg);
     void setParsingUi(bool parsing);
     static QString formatFieldValue(const ParsedField &pf);
 
     Ui::Widget *ui;
-    FrameConfig m_config;
-    bool m_configLoaded = false;
-    QByteArray m_rawData;
-    QVector<ParsedFrame> m_parsedFrames;
-    FrameParser m_parser;
+    StreamParser *m_streamParser;
     SerialPortManager *m_serialManager;
+
+    QByteArray m_rawData;
+    QMap<QString, QVector<ParsedFrame>> m_parsedFramesByConfig;
+    bool m_streamingActive = false;
 
     // Worker thread for file parsing
     QThread *m_workerThread = nullptr;

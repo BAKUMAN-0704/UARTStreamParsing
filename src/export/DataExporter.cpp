@@ -1,4 +1,6 @@
 #include "DataExporter.h"
+#include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QTextStream>
 
@@ -66,4 +68,41 @@ bool DataExporter::exportToTxt(const QString &filePath,
 
     file.close();
     return true;
+}
+
+QStringList DataExporter::autoSaveMultiConfig(
+    const QString &dirPath,
+    const QMap<QString, QVector<ParsedFrame>> &framesByConfig,
+    const QMap<QString, FrameConfig> &configMap,
+    const QString &endFrameConfigName, QString *errorMsg) {
+    QDir dir(dirPath);
+    if (!dir.exists())
+        dir.mkpath(".");
+
+    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+    QStringList savedFiles;
+
+    for (auto it = framesByConfig.constBegin(); it != framesByConfig.constEnd(); ++it) {
+        const QString &name = it.key();
+        const auto &frames = it.value();
+
+        if (name == endFrameConfigName || frames.isEmpty())
+            continue;
+
+        if (!configMap.contains(name))
+            continue;
+
+        QString fileName = name + "_" + timestamp + ".txt";
+        QString fullPath = dir.absoluteFilePath(fileName);
+
+        QString err;
+        if (exportToTxt(fullPath, frames, configMap[name], &err)) {
+            savedFiles << fullPath;
+        } else if (errorMsg) {
+            *errorMsg = err;
+            return savedFiles;
+        }
+    }
+
+    return savedFiles;
 }

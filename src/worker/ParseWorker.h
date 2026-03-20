@@ -2,8 +2,9 @@
 #define PARSEWORKER_H
 
 #include "../config/FrameFieldDef.h"
-#include "../parser/FrameParser.h"
+#include "../parser/StreamParser.h"
 #include <QByteArray>
+#include <QMap>
 #include <QObject>
 #include <QVector>
 
@@ -12,10 +13,10 @@ class ParseWorker : public QObject {
 public:
     explicit ParseWorker(QObject *parent = nullptr) : QObject(parent) {}
 
-    void setConfig(const FrameConfig &config) { m_config = config; }
+    void setConfigs(const QVector<ConfigEntry> &configs) { m_configs = configs; }
 
     // Results (safe to read from main thread after finished() is emitted)
-    QVector<ParsedFrame> m_frames;
+    QMap<QString, QVector<ParsedFrame>> m_framesByConfig;
     QByteArray m_rawData;
 
 public slots:
@@ -26,7 +27,7 @@ signals:
     void finished(bool success, const QString &errorMsg);
 
 private:
-    FrameConfig m_config;
+    QVector<ConfigEntry> m_configs;
 };
 
 #endif // PARSEWORKER_H

@@ -133,6 +133,7 @@ struct ParsedField {
 struct ParsedFrame {
     int frameIndex = 0;
     int offsetInStream = 0;
+    QString configName;
     QVector<ParsedField> fields;
     bool crcValid = true;
 };

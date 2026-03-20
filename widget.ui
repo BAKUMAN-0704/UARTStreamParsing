@@ -6,14 +6,14 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>600</width>
-    <height>370</height>
+    <width>640</width>
+    <height>540</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
-    <width>500</width>
-    <height>350</height>
+    <width>560</width>
+    <height>520</height>
    </size>
   </property>
   <property name="windowTitle">
@@ -21,59 +21,153 @@
   </property>
   <layout class="QVBoxLayout" name="mainLayout">
    <property name="spacing">
-    <number>12</number>
+    <number>10</number>
    </property>
    <property name="leftMargin">
     <number>16</number>
    </property>
    <property name="topMargin">
-    <number>16</number>
+    <number>14</number>
    </property>
    <property name="rightMargin">
     <number>16</number>
    </property>
    <property name="bottomMargin">
-    <number>12</number>
+    <number>10</number>
    </property>
+   <!-- ═══ 配置文件管理 ═══ -->
    <item>
     <widget class="QGroupBox" name="groupConfig">
      <property name="title">
-      <string>配置文件</string>
+      <string>配置文件管理</string>
      </property>
-     <layout class="QHBoxLayout" name="configLayout">
+     <layout class="QVBoxLayout" name="configMainLayout">
+      <property name="spacing">
+       <number>6</number>
+      </property>
+      <!-- 行1: 浏览 + 添加 -->
       <item>
-       <widget class="QLineEdit" name="editConfigPath">
-        <property name="readOnly">
-         <bool>true</bool>
-        </property>
-        <property name="placeholderText">
-         <string>选择 Excel(.xlsx) 或 CSV(.csv) 配置文件</string>
-        </property>
-       </widget>
+       <layout class="QHBoxLayout" name="configBrowseLayout">
+        <item>
+         <widget class="QLineEdit" name="editConfigPath">
+          <property name="readOnly">
+           <bool>true</bool>
+          </property>
+          <property name="placeholderText">
+           <string>选择 Excel(.xlsx) 或 CSV(.csv) 配置文件</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btnBrowseConfig">
+          <property name="text">
+           <string>浏览</string>
+          </property>
+          <property name="fixedWidth" stdset="0">
+           <number>60</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btnAddConfig">
+          <property name="text">
+           <string>添加</string>
+          </property>
+          <property name="fixedWidth" stdset="0">
+           <number>60</number>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
+      <!-- 行2: 配置列表 + 侧边按钮 -->
       <item>
-       <widget class="QPushButton" name="btnBrowseConfig">
-        <property name="text">
-         <string>浏览</string>
-        </property>
-        <property name="fixedWidth" stdset="0">
-         <number>60</number>
-        </property>
-       </widget>
+       <layout class="QHBoxLayout" name="configListLayout">
+        <item>
+         <widget class="QListWidget" name="listConfigs">
+          <property name="maximumSize">
+           <size>
+            <width>16777215</width>
+            <height>80</height>
+           </size>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QVBoxLayout" name="configBtnLayout">
+          <item>
+           <widget class="QPushButton" name="btnRemoveConfig">
+            <property name="text">
+             <string>移除</string>
+            </property>
+            <property name="fixedWidth" stdset="0">
+             <number>60</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="chkEndFrame">
+            <property name="text">
+             <string>结束帧</string>
+            </property>
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="configBtnSpacer">
+            <property name="orientation">
+             <enum>Qt::Vertical</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>0</width>
+              <height>0</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+       </layout>
       </item>
+      <!-- 行3: 自动保存目录 -->
       <item>
-       <widget class="QPushButton" name="btnLoadConfig">
-        <property name="text">
-         <string>加载</string>
-        </property>
-        <property name="fixedWidth" stdset="0">
-         <number>60</number>
-        </property>
-       </widget>
+       <layout class="QHBoxLayout" name="autoSaveLayout">
+        <item>
+         <widget class="QLabel" name="labelAutoSaveDir">
+          <property name="text">
+           <string>自动保存目录:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="editAutoSaveDir">
+          <property name="readOnly">
+           <bool>true</bool>
+          </property>
+          <property name="placeholderText">
+           <string>选择结束帧触发时的自动保存目录</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btnBrowseAutoSaveDir">
+          <property name="text">
+           <string>浏览</string>
+          </property>
+          <property name="fixedWidth" stdset="0">
+           <number>60</number>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
      </layout>
     </widget>
    </item>
+   <!-- ═══ 数据源 ═══ -->
    <item>
     <widget class="QGroupBox" name="groupSource">
      <property name="title">
@@ -84,9 +178,6 @@
        <layout class="QHBoxLayout" name="sourceSelectLayout">
         <item>
          <widget class="QRadioButton" name="radioFile">
-          <property name="enabled">
-           <bool>true</bool>
-          </property>
           <property name="text">
            <string>文件</string>
           </property>
@@ -120,22 +211,15 @@
       <item>
        <widget class="QStackedWidget" name="stackedSource">
         <property name="currentIndex">
-         <number>1</number>
+         <number>0</number>
         </property>
+        <!-- 页面: 文件 -->
         <widget class="QWidget" name="pageFile">
          <layout class="QHBoxLayout" name="fileLayout">
-          <property name="leftMargin">
-           <number>0</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>0</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
+          <property name="leftMargin"><number>0</number></property>
+          <property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property>
+          <property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLineEdit" name="editDataFilePath">
             <property name="readOnly">
@@ -158,99 +242,72 @@
           </item>
          </layout>
         </widget>
+        <!-- 页面: 串口 -->
         <widget class="QWidget" name="pageSerial">
          <layout class="QGridLayout" name="serialGridLayout">
-          <property name="leftMargin">
-           <number>0</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>0</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
+          <property name="leftMargin"><number>0</number></property>
+          <property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property>
+          <property name="bottomMargin"><number>0</number></property>
           <item row="0" column="0">
            <widget class="QLabel" name="labelPort">
-            <property name="text">
-             <string>端口</string>
-            </property>
+            <property name="text"><string>端口</string></property>
            </widget>
           </item>
           <item row="0" column="1">
            <widget class="QComboBox" name="comboPort"/>
           </item>
-          <item row="0" column="3">
+          <item row="0" column="2">
            <widget class="QLabel" name="labelBaud">
-            <property name="text">
-             <string>波特率</string>
-            </property>
+            <property name="text"><string>波特率</string></property>
            </widget>
           </item>
-          <item row="0" column="4">
+          <item row="0" column="3">
            <widget class="QComboBox" name="comboBaud"/>
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="labelDataBits">
-            <property name="text">
-             <string>数据位</string>
-            </property>
+            <property name="text"><string>数据位</string></property>
            </widget>
           </item>
           <item row="1" column="1">
            <widget class="QComboBox" name="comboDataBits"/>
           </item>
           <item row="1" column="2">
-           <widget class="QLabel" name="labelStopBits">
-            <property name="text">
-             <string>停止位</string>
-            </property>
-           </widget>
+           <widget class="QComboBox" name="comboStopBits"/>
           </item>
           <item row="1" column="3">
            <widget class="QLabel" name="labelParity">
-            <property name="text">
-             <string>校验</string>
-            </property>
+            <property name="text"><string>校验</string></property>
            </widget>
           </item>
           <item row="1" column="4">
            <widget class="QComboBox" name="comboParity"/>
           </item>
-          <item row="1" column="2">
-           <widget class="QComboBox" name="comboStopBits"/>
-          </item>
           <item row="2" column="0">
            <widget class="QPushButton" name="btnOpenPort">
-            <property name="text">
-             <string>打开串口</string>
-            </property>
+            <property name="text"><string>打开串口</string></property>
            </widget>
           </item>
           <item row="2" column="1">
            <widget class="QPushButton" name="btnClosePort">
-            <property name="enabled">
-             <bool>false</bool>
-            </property>
-            <property name="text">
-             <string>关闭串口</string>
-            </property>
-           </widget>
-          </item>
-          <item row="2" column="3" colspan="2">
-           <widget class="QLabel" name="labelSerialStatus">
-            <property name="text">
-             <string>未连接</string>
-            </property>
+            <property name="enabled"><bool>false</bool></property>
+            <property name="text"><string>关闭串口</string></property>
            </widget>
           </item>
           <item row="2" column="2">
            <widget class="QPushButton" name="btnRefreshPorts">
-            <property name="text">
-             <string>刷新</string>
-            </property>
+            <property name="text"><string>刷新</string></property>
+           </widget>
+          </item>
+          <item row="2" column="3">
+           <widget class="QLabel" name="labelSerialStatus">
+            <property name="text"><string>未连接</string></property>
+           </widget>
+          </item>
+          <item row="2" column="4">
+           <widget class="QCheckBox" name="chkStreamParse">
+            <property name="text"><string>实时解析</string></property>
            </widget>
           </item>
          </layout>
@@ -260,6 +317,7 @@
      </layout>
     </widget>
    </item>
+   <!-- ═══ 进度条 ═══ -->
    <item>
     <widget class="QProgressBar" name="progressBar">
      <property name="visible">
@@ -286,6 +344,7 @@
      </property>
     </spacer>
    </item>
+   <!-- ═══ 操作按钮 ═══ -->
    <item>
     <layout class="QHBoxLayout" name="actionLayout">
      <property name="spacing">
@@ -313,6 +372,7 @@
      </item>
     </layout>
    </item>
+   <!-- ═══ 状态栏 ═══ -->
    <item>
     <widget class="QLabel" name="labelStatus">
      <property name="text">

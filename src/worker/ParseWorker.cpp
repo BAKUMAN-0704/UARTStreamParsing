@@ -20,17 +20,22 @@ void ParseWorker::process(const QString &filePath) {
         return;
     }
 
-    // Phase 2: Parse frames (40% - 95%)
+    // Phase 2: Parse frames with ALL configs (40% - 95%)
     emit progress(40, QString("正在解析 %1 字节数据...").arg(m_rawData.size()));
 
-    FrameParser parser;
-    parser.setConfig(m_config);
-    m_frames = parser.parse(m_rawData, [this](int pct) {
+    StreamParser parser;
+    for (const auto &cfg : m_configs)
+        parser.addConfig(cfg);
+
+    m_framesByConfig = parser.parseBatch(m_rawData, [this](int pct) {
         emit progress(40 + pct * 55 / 100,
                       QString("正在解析数据... %1%").arg(40 + pct * 55 / 100));
     });
 
-    // Done
-    emit progress(100, QString("解析完成: %1 帧").arg(m_frames.size()));
+    int totalFrames = 0;
+    for (const auto &frames : m_framesByConfig)
+        totalFrames += frames.size();
+
+    emit progress(100, QString("解析完成: %1 帧").arg(totalFrames));
     emit finished(true, QString());
 }
