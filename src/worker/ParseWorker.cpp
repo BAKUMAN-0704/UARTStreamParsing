@@ -26,6 +26,14 @@ void ParseWorker::process(const QString &filePath) {
     StreamParser parser;
     for (const auto &cfg : m_configs)
         parser.addConfig(cfg);
+    if (!m_autoSaveDir.isEmpty())
+        parser.setAutoSaveDir(m_autoSaveDir);
+
+    // Collect auto-saved files via direct connection (same thread)
+    m_autoSavedFiles.clear();
+    connect(&parser, &StreamParser::autoSaveCompleted, this,
+            [this](const QStringList &files) { m_autoSavedFiles.append(files); },
+            Qt::DirectConnection);
 
     m_framesByConfig = parser.parseBatch(m_rawData, [this](int pct) {
         emit progress(40 + pct * 55 / 100,

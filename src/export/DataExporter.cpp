@@ -33,9 +33,10 @@ bool DataExporter::exportToTxt(const QString &filePath,
         return false;
     }
 
+    // Write UTF-8 BOM explicitly for Windows compatibility
+    file.write("\xEF\xBB\xBF");
     QTextStream out(&file);
     out.setCodec("UTF-8");
-    out.setGenerateByteOrderMark(true);
 
     // Collect DATA field definitions in config order
     QVector<int> dataFieldIndices;

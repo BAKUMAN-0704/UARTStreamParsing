@@ -14,10 +14,12 @@ public:
     explicit ParseWorker(QObject *parent = nullptr) : QObject(parent) {}
 
     void setConfigs(const QVector<ConfigEntry> &configs) { m_configs = configs; }
+    void setAutoSaveDir(const QString &dir) { m_autoSaveDir = dir; }
 
     // Results (safe to read from main thread after finished() is emitted)
     QMap<QString, QVector<ParsedFrame>> m_framesByConfig;
     QByteArray m_rawData;
+    QStringList m_autoSavedFiles;
 
 public slots:
     void process(const QString &filePath);
@@ -28,6 +30,7 @@ signals:
 
 private:
     QVector<ConfigEntry> m_configs;
+    QString m_autoSaveDir;
 };
 
 #endif // PARSEWORKER_H

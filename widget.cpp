@@ -424,6 +424,7 @@ void Widget::onParse() {
         m_workerThread = new QThread(this);
         m_worker = new ParseWorker();
         m_worker->setConfigs(m_streamParser->configs());
+        m_worker->setAutoSaveDir(m_streamParser->autoSaveDir());
         m_worker->moveToThread(m_workerThread);
 
         connect(m_workerThread, &QThread::started, m_worker,
@@ -440,13 +441,20 @@ void Widget::onParse() {
                     if (success) {
                         m_rawData = std::move(m_worker->m_rawData);
                         m_parsedFramesByConfig = std::move(m_worker->m_framesByConfig);
+                        QStringList autoSaved = m_worker->m_autoSavedFiles;
 
                         int total = 0;
                         for (const auto &f : m_parsedFramesByConfig)
                             total += f.size();
 
-                        setStatus(
-                            QString("解析完成: %1 帧, 共 %2 字节").arg(total).arg(m_rawData.size()));
+                        QString statusMsg =
+                            QString("解析完成: %1 帧, 共 %2 字节")
+                                .arg(total)
+                                .arg(m_rawData.size());
+                        if (!autoSaved.isEmpty())
+                            statusMsg +=
+                                QString(", 自动保存 %1 个文件").arg(autoSaved.size());
+                        setStatus(statusMsg);
                         ui->btnExport->setEnabled(total > 0);
 
                         if (total == 0) {
