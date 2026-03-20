@@ -11,11 +11,13 @@ public:
     using ProgressCallback = std::function<void(int percent)>;
 
     void setConfig(const FrameConfig &config);
+    void setLightweight(bool on) { m_lightweight = on; }
     QVector<ParsedFrame> parse(const QByteArray &rawData,
                                ProgressCallback progressCb = nullptr);
 
 private:
     FrameConfig m_config;
+    bool m_lightweight = false; // skip rawHex generation for streaming
 
     bool tryParseFrame(const QByteArray &data, int offset, ParsedFrame &frame,
                        int &frameEnd);

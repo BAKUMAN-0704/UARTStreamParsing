@@ -138,8 +138,10 @@ bool FrameParser::tryParseFrame(const QByteArray &data, int offset,
         if (fieldOffset + fieldDef.byteCount > frameData.size())
             break;
 
-        QByteArray fieldBytes = frameData.mid(fieldOffset, fieldDef.byteCount);
-        pf.rawHex = toHexString(fieldBytes);
+        if (!m_lightweight) {
+            QByteArray fieldBytes = frameData.mid(fieldOffset, fieldDef.byteCount);
+            pf.rawHex = toHexString(fieldBytes);
+        }
 
         switch (fieldDef.fieldType) {
         case FieldType::DATA:
@@ -151,7 +153,8 @@ bool FrameParser::tryParseFrame(const QByteArray &data, int offset,
         case FieldType::TAIL:
         case FieldType::PADDING:
         case FieldType::CRC:
-            pf.value = pf.rawHex;
+            if (!m_lightweight)
+                pf.value = pf.rawHex;
             break;
         }
 

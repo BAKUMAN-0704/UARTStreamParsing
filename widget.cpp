@@ -51,7 +51,10 @@ Widget::Widget(QWidget *parent) : QWidget(parent), ui(new Ui::Widget) {
     connect(ui->btnExport, &QPushButton::clicked, this, &Widget::onExport);
 
     // StreamParser signals
-    connect(m_streamParser, &StreamParser::frameParsed, this, &Widget::onFrameParsed);
+    connect(m_streamParser, &StreamParser::streamProgress, this,
+            [this](int total) {
+                setStatus(QString("实时解析中... 已解析 %1 帧").arg(total));
+            });
     connect(m_streamParser, &StreamParser::endFrameDetected, this,
             &Widget::onEndFrameDetected);
     connect(m_streamParser, &StreamParser::autoSaveCompleted, this,
@@ -386,16 +389,6 @@ void Widget::onSerialError(const QString &msg) {
 }
 
 // ─── StreamParser signals ───
-
-void Widget::onFrameParsed(const ParsedFrame &frame, const QString &configName) {
-    int total = 0;
-    for (const auto &frames : m_streamParser->accumulatedFrames())
-        total += frames.size();
-    setStatus(QString("实时解析中... 已解析 %1 帧 (当前: %2 #%3)")
-                  .arg(total)
-                  .arg(configName)
-                  .arg(frame.frameIndex));
-}
 
 void Widget::onEndFrameDetected() {
     setStatus("检测到结束帧，正在自动保存...");

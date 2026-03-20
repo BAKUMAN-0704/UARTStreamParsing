@@ -4,6 +4,7 @@
 #include "../config/FrameFieldDef.h"
 #include "FrameParser.h"
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QMap>
 #include <QObject>
 #include <QVector>
@@ -50,12 +51,14 @@ public:
 
 Q_SIGNALS:
     void frameParsed(const ParsedFrame &frame, const QString &configName);
+    void streamProgress(int totalFrames); // throttled, max ~10/sec
     void endFrameDetected();
     void autoSaveCompleted(const QStringList &savedFiles);
 
 private:
     void tryParseBuffer();
     void performAutoSave();
+    void emitThrottledProgress();
 
     static int findHeaderIn(const QByteArray &data, int offset,
                             const QByteArray &headerBytes);
@@ -69,6 +72,11 @@ private:
     QMap<QString, int> m_frameCounters;
     QString m_autoSaveDir;
     int m_maxHeaderSize = 0;
+    bool m_streamingMode = false;
+
+    // Throttle: emit streamProgress at most every 100ms
+    QElapsedTimer m_progressTimer;
+    int m_totalStreamFrames = 0;
 };
 
 #endif // STREAMPARSER_H

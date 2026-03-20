@@ -117,13 +117,32 @@ int StreamParser::computeFrameSize(const FrameConfig &config, const QByteArray &
 // ─── Streaming mode ───
 
 void StreamParser::feedData(const QByteArray &chunk) {
+    // Enable lightweight mode on first feedData call
+    if (!m_streamingMode) {
+        m_streamingMode = true;
+        for (auto &p : m_parsers)
+            p.setLightweight(true);
+        m_progressTimer.start();
+        m_totalStreamFrames = 0;
+    }
     m_buffer.append(chunk);
     tryParseBuffer();
 }
 
 void StreamParser::resetStream() {
     m_buffer.clear();
+    m_streamingMode = false;
+    m_totalStreamFrames = 0;
+    for (auto &p : m_parsers)
+        p.setLightweight(false);
     clearAccumulatedFrames();
+}
+
+void StreamParser::emitThrottledProgress() {
+    if (!m_progressTimer.isValid() || m_progressTimer.elapsed() >= 100) {
+        emit streamProgress(m_totalStreamFrames);
+        m_progressTimer.restart();
+    }
 }
 
 void StreamParser::tryParseBuffer() {
@@ -172,7 +191,12 @@ void StreamParser::tryParseBuffer() {
             frame.frameIndex = ++m_frameCounters[configName];
             frame.offsetInStream = bestPos;
 
-            emit frameParsed(frame, configName);
+            if (m_streamingMode) {
+                ++m_totalStreamFrames;
+                emitThrottledProgress();
+            } else {
+                emit frameParsed(frame, configName);
+            }
 
             if (m_configs[bestIdx].isEndFrame) {
                 emit endFrameDetected();

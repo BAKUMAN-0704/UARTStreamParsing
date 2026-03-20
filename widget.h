@@ -39,7 +39,6 @@ private Q_SLOTS:
     void onExport();
     void onSerialDataReceived(const QByteArray &data);
     void onSerialError(const QString &msg);
-    void onFrameParsed(const ParsedFrame &frame, const QString &configName);
     void onEndFrameDetected();
     void onAutoSaveCompleted(const QStringList &savedFiles);
 
