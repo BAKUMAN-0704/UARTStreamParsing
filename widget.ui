@@ -6,118 +6,186 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1000</width>
-    <height>700</height>
+    <width>600</width>
+    <height>420</height>
    </rect>
   </property>
+  <property name="minimumSize">
+   <size>
+    <width>500</width>
+    <height>350</height>
+   </size>
+  </property>
   <property name="windowTitle">
-   <string>UART Stream Parsing - 串口数据解析工具</string>
+   <string>UART Stream Parsing</string>
   </property>
   <layout class="QVBoxLayout" name="mainLayout">
+   <property name="spacing">
+    <number>12</number>
+   </property>
+   <property name="leftMargin">
+    <number>16</number>
+   </property>
+   <property name="topMargin">
+    <number>16</number>
+   </property>
+   <property name="rightMargin">
+    <number>16</number>
+   </property>
+   <property name="bottomMargin">
+    <number>12</number>
+   </property>
    <item>
-    <layout class="QHBoxLayout" name="configLayout">
-     <item>
-      <widget class="QLabel" name="labelConfig">
-       <property name="text">
-        <string>配置文件:</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLineEdit" name="editConfigPath">
-       <property name="readOnly">
-        <bool>true</bool>
-       </property>
-       <property name="placeholderText">
-        <string>选择Excel(.xlsx)或CSV(.csv)配置文件...</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="btnBrowseConfig">
-       <property name="text">
-        <string>浏览...</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="btnLoadConfig">
-       <property name="text">
-        <string>加载配置</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="sourceSelectLayout">
-     <item>
-      <widget class="QLabel" name="labelSource">
-       <property name="text">
-        <string>数据源:</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QRadioButton" name="radioSerial">
-       <property name="text">
-        <string>串口</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QRadioButton" name="radioFile">
-       <property name="text">
-        <string>文件</string>
-       </property>
-       <property name="checked">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <spacer name="sourceSpacer">
-       <property name="orientation">
-        <enum>Qt::Horizontal</enum>
-       </property>
-      </spacer>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <widget class="QStackedWidget" name="stackedSource">
-     <property name="currentIndex">
-      <number>1</number>
+    <widget class="QGroupBox" name="groupConfig">
+     <property name="title">
+      <string>配置文件</string>
      </property>
-     <widget class="QWidget" name="pageSerial">
-      <layout class="QVBoxLayout" name="serialPageLayout">
-       <item>
-        <widget class="QGroupBox" name="groupSerial">
-         <property name="title">
-          <string>串口设置</string>
-         </property>
+     <layout class="QHBoxLayout" name="configLayout">
+      <item>
+       <widget class="QLineEdit" name="editConfigPath">
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+        <property name="placeholderText">
+         <string>选择 Excel(.xlsx) 或 CSV(.csv) 配置文件</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnBrowseConfig">
+        <property name="text">
+         <string>浏览</string>
+        </property>
+        <property name="fixedWidth" stdset="0">
+         <number>60</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnLoadConfig">
+        <property name="text">
+         <string>加载</string>
+        </property>
+        <property name="fixedWidth" stdset="0">
+         <number>60</number>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupSource">
+     <property name="title">
+      <string>数据源</string>
+     </property>
+     <layout class="QVBoxLayout" name="sourceMainLayout">
+      <item>
+       <layout class="QHBoxLayout" name="sourceSelectLayout">
+        <item>
+         <widget class="QRadioButton" name="radioFile">
+          <property name="enabled">
+           <bool>true</bool>
+          </property>
+          <property name="text">
+           <string>文件</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioSerial">
+          <property name="text">
+           <string>串口</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="sourceSpacer">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>0</width>
+            <height>0</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QStackedWidget" name="stackedSource">
+        <property name="currentIndex">
+         <number>1</number>
+        </property>
+        <widget class="QWidget" name="pageFile">
+         <layout class="QHBoxLayout" name="fileLayout">
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QLineEdit" name="editDataFilePath">
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+            <property name="placeholderText">
+             <string>选择 TXT 十六进制数据文件</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnBrowseDataFile">
+            <property name="text">
+             <string>浏览</string>
+            </property>
+            <property name="fixedWidth" stdset="0">
+             <number>60</number>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="pageSerial">
          <layout class="QGridLayout" name="serialGridLayout">
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
           <item row="0" column="0">
            <widget class="QLabel" name="labelPort">
             <property name="text">
-             <string>端口:</string>
+             <string>端口</string>
             </property>
            </widget>
           </item>
           <item row="0" column="1">
            <widget class="QComboBox" name="comboPort"/>
           </item>
-          <item row="0" column="2">
-           <widget class="QPushButton" name="btnRefreshPorts">
-            <property name="text">
-             <string>刷新</string>
-            </property>
-           </widget>
-          </item>
           <item row="0" column="3">
            <widget class="QLabel" name="labelBaud">
             <property name="text">
-             <string>波特率:</string>
+             <string>波特率</string>
             </property>
            </widget>
           </item>
@@ -127,7 +195,7 @@
           <item row="1" column="0">
            <widget class="QLabel" name="labelDataBits">
             <property name="text">
-             <string>数据位:</string>
+             <string>数据位</string>
             </property>
            </widget>
           </item>
@@ -137,14 +205,14 @@
           <item row="1" column="2">
            <widget class="QLabel" name="labelStopBits">
             <property name="text">
-             <string>停止位:</string>
+             <string>停止位</string>
             </property>
            </widget>
           </item>
           <item row="1" column="3">
            <widget class="QLabel" name="labelParity">
             <property name="text">
-             <string>校验:</string>
+             <string>校验</string>
             </property>
            </widget>
           </item>
@@ -163,127 +231,95 @@
           </item>
           <item row="2" column="1">
            <widget class="QPushButton" name="btnClosePort">
-            <property name="text">
-             <string>关闭串口</string>
-            </property>
             <property name="enabled">
              <bool>false</bool>
+            </property>
+            <property name="text">
+             <string>关闭串口</string>
             </property>
            </widget>
           </item>
           <item row="2" column="3" colspan="2">
            <widget class="QLabel" name="labelSerialStatus">
             <property name="text">
-             <string>状态: 未连接</string>
+             <string>未连接</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="2">
+           <widget class="QPushButton" name="btnRefreshPorts">
+            <property name="text">
+             <string>刷新</string>
             </property>
            </widget>
           </item>
          </layout>
         </widget>
-       </item>
-      </layout>
-     </widget>
-     <widget class="QWidget" name="pageFile">
-      <layout class="QVBoxLayout" name="filePageLayout">
-       <item>
-        <widget class="QGroupBox" name="groupFile">
-         <property name="title">
-          <string>文件设置</string>
-         </property>
-         <layout class="QHBoxLayout" name="fileLayout">
-          <item>
-           <widget class="QLabel" name="labelFilePath">
-            <property name="text">
-             <string>数据文件:</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLineEdit" name="editDataFilePath">
-            <property name="readOnly">
-             <bool>true</bool>
-            </property>
-            <property name="placeholderText">
-             <string>选择TXT十六进制数据文件...</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="btnBrowseDataFile">
-            <property name="text">
-             <string>浏览...</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="btnReadFile">
-            <property name="text">
-             <string>读取文件</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </widget>
-       </item>
-      </layout>
-     </widget>
+       </widget>
+      </item>
+     </layout>
     </widget>
    </item>
    <item>
+    <widget class="QProgressBar" name="progressBar">
+     <property name="visible">
+      <bool>false</bool>
+     </property>
+     <property name="value">
+      <number>0</number>
+     </property>
+     <property name="textVisible">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>0</width>
+       <height>0</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+   <item>
     <layout class="QHBoxLayout" name="actionLayout">
+     <property name="spacing">
+      <number>8</number>
+     </property>
      <item>
       <widget class="QPushButton" name="btnParse">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="text">
         <string>开始解析</string>
        </property>
-       <property name="enabled">
-        <bool>false</bool>
-       </property>
       </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="btnClearResults">
-       <property name="text">
-        <string>清空结果</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <spacer name="actionSpacer">
-       <property name="orientation">
-        <enum>Qt::Horizontal</enum>
-       </property>
-      </spacer>
      </item>
      <item>
       <widget class="QPushButton" name="btnExport">
-       <property name="text">
-        <string>导出TXT</string>
-       </property>
        <property name="enabled">
         <bool>false</bool>
+       </property>
+       <property name="text">
+        <string>导出 TXT</string>
        </property>
       </widget>
      </item>
     </layout>
    </item>
    <item>
-    <widget class="QTableWidget" name="tableResults">
-     <property name="alternatingRowColors">
-      <bool>true</bool>
-     </property>
-     <property name="selectionMode">
-      <enum>QAbstractItemView::SingleSelection</enum>
-     </property>
-     <property name="selectionBehavior">
-      <enum>QAbstractItemView::SelectRows</enum>
-     </property>
-    </widget>
-   </item>
-   <item>
     <widget class="QLabel" name="labelStatus">
      <property name="text">
       <string>就绪</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
      </property>
     </widget>
    </item>

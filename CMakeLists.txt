@@ -33,6 +33,7 @@ set(PROJECT_SOURCES
         src/datasource/FileDataSource.cpp
         src/export/DataExporter.h
         src/export/DataExporter.cpp
+        resource/fonts.qrc
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)

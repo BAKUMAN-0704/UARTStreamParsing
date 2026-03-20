@@ -27,18 +27,18 @@ private Q_SLOTS:
     void onOpenPort();
     void onClosePort();
     void onBrowseDataFile();
-    void onReadFile();
     void onParse();
-    void onClearResults();
     void onExport();
     void onSerialDataReceived(const QByteArray &data);
     void onSerialError(const QString &msg);
 
 private:
     void initSerialUI();
+    void initStyle();
     void updateParseButton();
-    void displayResults(const QVector<ParsedFrame> &frames);
+    void showResultDialog(const QVector<ParsedFrame> &frames);
     void setStatus(const QString &msg);
+    static QString formatFieldValue(const ParsedField &pf);
 
     Ui::Widget *ui;
     FrameConfig m_config;

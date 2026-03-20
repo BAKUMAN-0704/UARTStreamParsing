@@ -87,6 +87,7 @@ CMakeLists.txt.user*
 /build-*/
 /cmake-build-*/
 /test/
+/resource/
 # CMake generated files
 /compile_commands.json
 CMakeUserPresets.json
