@@ -49,7 +49,7 @@ bool DataExporter::exportToTxt(const QString &filePath,
     }
 
     // Write tab-separated header line
-    out << "帧序号\t" << dataFieldNames.join('\t') << "\n";
+    out << "FrameIndex\t" << dataFieldNames.join('\t') << "\n";
 
     // Write each frame as a row, DATA fields only, in config order
     for (const auto &frame : frames) {

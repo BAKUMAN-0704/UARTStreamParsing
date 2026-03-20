@@ -355,6 +355,22 @@ void Widget::onOpenPort() {
 }
 
 void Widget::onClosePort() {
+    // Save any remaining accumulated frames before closing
+    if (m_streamingActive && !m_streamParser->autoSaveDir().isEmpty()) {
+        const auto &remaining = m_streamParser->accumulatedFrames();
+        bool hasData = false;
+        for (auto it = remaining.constBegin(); it != remaining.constEnd(); ++it) {
+            if (!it.value().isEmpty()) {
+                hasData = true;
+                break;
+            }
+        }
+        if (hasData) {
+            m_streamParser->flushAndSave();
+            setStatus("串口关闭前已保存剩余数据");
+        }
+    }
+
     m_serialManager->closePort();
     m_streamingActive = false;
     ui->btnOpenPort->setEnabled(true);

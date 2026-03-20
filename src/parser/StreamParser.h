@@ -48,6 +48,7 @@ public:
     // Auto-save
     void setAutoSaveDir(const QString &dir) { m_autoSaveDir = dir; }
     QString autoSaveDir() const { return m_autoSaveDir; }
+    void flushAndSave(); // save remaining accumulated frames
 
 Q_SIGNALS:
     void frameParsed(const ParsedFrame &frame, const QString &configName);
@@ -58,6 +59,7 @@ Q_SIGNALS:
 private:
     void tryParseBuffer();
     void performAutoSave();
+    QStringList saveFramesToDir(const QMap<QString, QVector<ParsedFrame>> &frames);
     void emitThrottledProgress();
 
     static int findHeaderIn(const QByteArray &data, int offset,

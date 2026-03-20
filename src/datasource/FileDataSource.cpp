@@ -1,7 +1,6 @@
 #include "FileDataSource.h"
 #include <QFile>
 #include <QRegularExpression>
-#include <QTextStream>
 #include <cstring>
 
 static inline int hexCharVal(char c) {
@@ -31,61 +30,82 @@ QByteArray FileDataSource::readHexFile(const QString &filePath, QString *errorMs
     QByteArray result;
     result.reserve(static_cast<int>(fileSize / 4));
 
-    qint64 bytesRead = 0;
+    // Block-based reading for much better performance on large files
+    constexpr int BLOCK_SIZE = 256 * 1024; // 256KB blocks
+    QByteArray block(BLOCK_SIZE, Qt::Uninitialized);
+    qint64 totalRead = 0;
     int lastPct = -1;
+    bool pendingHigh = false; // carry-over: have high nibble from previous block
+    int highNibble = 0;
+    bool inPrefix = false; // just saw '0', waiting for 'x'/'X'
+    bool inToken = false;
 
     while (!file.atEnd()) {
-        QByteArray line = file.readLine();
-        bytesRead += line.size();
+        qint64 n = file.read(block.data(), BLOCK_SIZE);
+        if (n <= 0)
+            break;
+        totalRead += n;
 
-        const char *p = line.constData();
-        const int len = line.size();
-        int i = 0;
+        const char *p = block.constData();
+        for (qint64 i = 0; i < n; ++i) {
+            char c = p[i];
 
-        while (i < len) {
-            // Skip separators
-            while (i < len && isSep(p[i]))
-                ++i;
-            if (i >= len)
-                break;
-
-            // Skip "0x" or "0X" prefix
-            if (i + 1 < len && p[i] == '0' && (p[i + 1] == 'x' || p[i + 1] == 'X'))
-                i += 2;
-
-            // Collect consecutive hex digits
-            int tokenStart = i;
-            while (i < len && hexCharVal(p[i]) >= 0)
-                ++i;
-            int tokenLen = i - tokenStart;
-
-            if (tokenLen == 0) {
-                ++i; // skip invalid character
+            if (isSep(c)) {
+                // Separator: flush pending high nibble as single-digit byte
+                if (pendingHigh) {
+                    result.append(static_cast<char>(highNibble));
+                    pendingHigh = false;
+                }
+                inToken = false;
+                inPrefix = false;
                 continue;
             }
 
-            // Parse hex digit pairs
-            int j = tokenStart;
-            if (tokenLen % 2 != 0) {
-                // Odd: treat first digit as a single byte
-                result.append(static_cast<char>(hexCharVal(p[j])));
-                ++j;
+            // Handle "0x" prefix
+            if (!inToken && c == '0') {
+                inPrefix = true;
+                inToken = true;
+                continue;
             }
-            for (; j + 1 <= tokenStart + tokenLen; j += 2) {
-                int hi = hexCharVal(p[j]);
-                int lo = hexCharVal(p[j + 1]);
-                result.append(static_cast<char>((hi << 4) | lo));
+            if (inPrefix && (c == 'x' || c == 'X')) {
+                inPrefix = false;
+                continue;
+            }
+            inPrefix = false;
+            inToken = true;
+
+            int val = hexCharVal(c);
+            if (val < 0) {
+                // Non-hex char: flush pending and skip
+                if (pendingHigh) {
+                    result.append(static_cast<char>(highNibble));
+                    pendingHigh = false;
+                }
+                inToken = false;
+                continue;
+            }
+
+            if (!pendingHigh) {
+                highNibble = val;
+                pendingHigh = true;
+            } else {
+                result.append(static_cast<char>((highNibble << 4) | val));
+                pendingHigh = false;
             }
         }
 
         if (progressCb && fileSize > 0) {
-            int pct = static_cast<int>(bytesRead * 100 / fileSize);
+            int pct = static_cast<int>(totalRead * 100 / fileSize);
             if (pct != lastPct) {
                 progressCb(pct);
                 lastPct = pct;
             }
         }
     }
+
+    // Flush any remaining nibble
+    if (pendingHigh)
+        result.append(static_cast<char>(highNibble));
 
     return result;
 }

@@ -15,6 +15,10 @@ public:
     QVector<ParsedFrame> parse(const QByteArray &rawData,
                                ProgressCallback progressCb = nullptr);
 
+    // Parse a single frame at given offset in a larger buffer (zero-copy)
+    bool parseSingleFrame(const QByteArray &data, int offset, int frameSize,
+                          ParsedFrame &frame);
+
 private:
     FrameConfig m_config;
     bool m_lightweight = false; // skip rawHex generation for streaming

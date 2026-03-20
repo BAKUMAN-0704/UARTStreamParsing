@@ -182,12 +182,11 @@ void StreamParser::tryParseBuffer() {
         if (bestPos + frameSize > m_buffer.size())
             break; // Not enough data yet
 
-        // Extract and parse one frame
-        QByteArray oneFrame = m_buffer.mid(bestPos, frameSize);
-        QVector<ParsedFrame> result = m_parsers[bestIdx].parse(oneFrame);
+        // Parse one frame (zero-copy)
+        ParsedFrame frame;
+        bool ok = m_parsers[bestIdx].parseSingleFrame(m_buffer, bestPos, frameSize, frame);
 
-        if (!result.isEmpty()) {
-            ParsedFrame frame = std::move(result.first());
+        if (ok) {
             const QString &configName = m_configs[bestIdx].name;
             frame.configName = configName;
             frame.frameIndex = ++m_frameCounters[configName];
@@ -225,33 +224,46 @@ void StreamParser::performAutoSave() {
     if (m_autoSaveDir.isEmpty())
         return;
 
+    QStringList saved = saveFramesToDir(m_accumulatedFrames);
+    clearAccumulatedFrames();
+    if (!saved.isEmpty())
+        emit autoSaveCompleted(saved);
+}
+
+void StreamParser::flushAndSave() {
+    performAutoSave();
+}
+
+QStringList StreamParser::saveFramesToDir(
+    const QMap<QString, QVector<ParsedFrame>> &frames) {
+    static int saveCounter = 0;
+    ++saveCounter;
+
     QDir dir(m_autoSaveDir);
     if (!dir.exists())
         dir.mkpath(".");
 
-    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss")
+                        + QString("_%1").arg(saveCounter);
     QStringList savedFiles;
 
-    for (int i = 0; i < m_configs.size(); ++i) {
-        const auto &entry = m_configs[i];
+    for (const auto &entry : m_configs) {
         if (entry.isEndFrame)
             continue;
 
-        const auto &frames = m_accumulatedFrames.value(entry.name);
-        if (frames.isEmpty())
+        const auto &flist = frames.value(entry.name);
+        if (flist.isEmpty())
             continue;
 
         QString fileName = entry.name + "_" + timestamp + ".txt";
         QString fullPath = dir.absoluteFilePath(fileName);
 
         QString errorMsg;
-        if (DataExporter::exportToTxt(fullPath, frames, entry.config, &errorMsg))
+        if (DataExporter::exportToTxt(fullPath, flist, entry.config, &errorMsg))
             savedFiles << fullPath;
     }
 
-    clearAccumulatedFrames();
-    if (!savedFiles.isEmpty())
-        emit autoSaveCompleted(savedFiles);
+    return savedFiles;
 }
 
 // ─── Batch mode ───
@@ -321,20 +333,21 @@ QMap<QString, QVector<ParsedFrame>> StreamParser::parseBatch(const QByteArray &r
         if (bestPos + frameSize > totalSize)
             break;
 
-        QByteArray oneFrame = rawData.mid(bestPos, frameSize);
-        QVector<ParsedFrame> parsed = m_parsers[bestIdx].parse(oneFrame);
+        // Zero-copy parse
+        ParsedFrame frame;
+        bool ok = m_parsers[bestIdx].parseSingleFrame(rawData, bestPos, frameSize, frame);
 
-        if (!parsed.isEmpty()) {
-            ParsedFrame frame = std::move(parsed.first());
+        if (ok) {
             const QString &name = m_configs[bestIdx].name;
             frame.configName = name;
             frame.frameIndex = ++counters[name];
             frame.offsetInStream = bestPos;
 
             if (doAutoSave && m_configs[bestIdx].isEndFrame) {
-                // End frame detected: save accumulated session frames
-                m_accumulatedFrames = sessionFrames;
-                performAutoSave();
+                // End frame detected: save accumulated session frames directly
+                QStringList saved = saveFramesToDir(sessionFrames);
+                if (!saved.isEmpty())
+                    emit autoSaveCompleted(saved);
                 // Reset session
                 for (auto it = sessionFrames.begin(); it != sessionFrames.end(); ++it)
                     it.value().clear();
@@ -358,6 +371,22 @@ QMap<QString, QVector<ParsedFrame>> StreamParser::parseBatch(const QByteArray &r
                 progressCb(pct);
                 lastPct = pct;
             }
+        }
+    }
+
+    // Save remaining frames after last end frame
+    if (doAutoSave) {
+        bool hasRemaining = false;
+        for (auto it = sessionFrames.constBegin(); it != sessionFrames.constEnd(); ++it) {
+            if (!it.value().isEmpty()) {
+                hasRemaining = true;
+                break;
+            }
+        }
+        if (hasRemaining) {
+            QStringList saved = saveFramesToDir(sessionFrames);
+            if (!saved.isEmpty())
+                emit autoSaveCompleted(saved);
         }
     }
 

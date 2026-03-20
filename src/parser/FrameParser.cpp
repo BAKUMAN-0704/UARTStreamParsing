@@ -288,6 +288,59 @@ QVariant FrameParser::extractValue(const QByteArray &data, int offset,
     return {};
 }
 
+bool FrameParser::parseSingleFrame(const QByteArray &data, int offset, int frameSize,
+                                   ParsedFrame &frame) {
+    if (offset + frameSize > data.size())
+        return false;
+
+    // Validate using a view of the data (no copy)
+    QByteArray frameData = QByteArray::fromRawData(data.constData() + offset, frameSize);
+
+    if (!validateTail(frameData))
+        return false;
+    if (!validatePadding(frameData))
+        return false;
+
+    frame.crcValid = validateCrc(frameData);
+
+    // Extract fields
+    int fieldOffset = 0;
+    for (const auto &fieldDef : m_config.fields) {
+        ParsedField pf;
+        pf.name = fieldDef.name;
+        pf.fieldType = fieldDef.fieldType;
+        pf.dataType = fieldDef.dataType;
+
+        if (fieldOffset + fieldDef.byteCount > frameSize)
+            break;
+
+        if (!m_lightweight) {
+            QByteArray fieldBytes = frameData.mid(fieldOffset, fieldDef.byteCount);
+            pf.rawHex = toHexString(fieldBytes);
+        }
+
+        switch (fieldDef.fieldType) {
+        case FieldType::DATA:
+        case FieldType::LENGTH:
+            pf.value = extractValue(frameData, fieldOffset, fieldDef.dataType,
+                                    fieldDef.byteCount, fieldDef.endianness);
+            break;
+        case FieldType::HEADER:
+        case FieldType::TAIL:
+        case FieldType::PADDING:
+        case FieldType::CRC:
+            if (!m_lightweight)
+                pf.value = pf.rawHex;
+            break;
+        }
+
+        frame.fields.append(std::move(pf));
+        fieldOffset += fieldDef.byteCount;
+    }
+
+    return true;
+}
+
 QString FrameParser::toHexString(const QByteArray &data) {
     QString result;
     for (int i = 0; i < data.size(); ++i) {
