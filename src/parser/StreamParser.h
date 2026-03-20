@@ -67,6 +67,7 @@ private:
 
     QVector<ConfigEntry> m_configs;
     QVector<FrameParser> m_parsers;
+    QVector<QByteArray> m_cachedHeaders;
     QByteArray m_buffer;
     QMap<QString, QVector<ParsedFrame>> m_accumulatedFrames;
     QMap<QString, int> m_frameCounters;

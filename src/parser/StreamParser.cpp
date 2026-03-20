@@ -14,6 +14,7 @@ void StreamParser::addConfig(const ConfigEntry &entry) {
     FrameParser parser;
     parser.setConfig(entry.config);
     m_parsers.append(std::move(parser));
+    m_cachedHeaders.append(entry.config.headerBytes());
     m_accumulatedFrames[entry.name] = {};
     m_frameCounters[entry.name] = 0;
 
@@ -27,6 +28,7 @@ void StreamParser::removeConfig(const QString &name) {
         if (m_configs[i].name == name) {
             m_configs.remove(i);
             m_parsers.remove(i);
+            m_cachedHeaders.remove(i);
             m_accumulatedFrames.remove(name);
             m_frameCounters.remove(name);
             break;
@@ -41,6 +43,7 @@ void StreamParser::removeConfig(const QString &name) {
 void StreamParser::clearConfigs() {
     m_configs.clear();
     m_parsers.clear();
+    m_cachedHeaders.clear();
     m_accumulatedFrames.clear();
     m_frameCounters.clear();
     m_maxHeaderSize = 0;
@@ -157,8 +160,7 @@ void StreamParser::tryParseBuffer() {
         int bestIdx = -1;
 
         for (int i = 0; i < m_configs.size(); ++i) {
-            QByteArray hdr = m_configs[i].config.headerBytes();
-            int pos = findHeaderIn(m_buffer, offset, hdr);
+            int pos = findHeaderIn(m_buffer, offset, m_cachedHeaders[i]);
             if (pos >= 0 && pos < bestPos) {
                 bestPos = pos;
                 bestIdx = i;
@@ -266,6 +268,35 @@ QMap<QString, QVector<ParsedFrame>> StreamParser::parseBatch(const QByteArray &r
     if (m_configs.isEmpty() || rawData.isEmpty())
         return results;
 
+    // Enable lightweight mode for batch parsing (skip rawHex)
+    for (auto &p : m_parsers)
+        p.setLightweight(true);
+
+    // Cache header bytes to avoid repeated allocation
+    QVector<QByteArray> cachedHeaders;
+    cachedHeaders.reserve(m_configs.size());
+    for (const auto &c : m_configs)
+        cachedHeaders.append(c.config.headerBytes());
+
+    // Check if auto-save is configured (has end frame + save dir)
+    bool hasEndFrame = false;
+    QString endFrameName;
+    for (const auto &c : m_configs) {
+        if (c.isEndFrame) {
+            hasEndFrame = true;
+            endFrameName = c.name;
+            break;
+        }
+    }
+    bool doAutoSave = hasEndFrame && !m_autoSaveDir.isEmpty();
+
+    // Accumulated frames for auto-save between end frames
+    QMap<QString, QVector<ParsedFrame>> sessionFrames;
+    if (doAutoSave) {
+        for (const auto &c : m_configs)
+            sessionFrames[c.name] = {};
+    }
+
     const int totalSize = rawData.size();
     int offset = 0;
     int lastPct = -1;
@@ -276,8 +307,7 @@ QMap<QString, QVector<ParsedFrame>> StreamParser::parseBatch(const QByteArray &r
         int bestIdx = -1;
 
         for (int i = 0; i < m_configs.size(); ++i) {
-            QByteArray hdr = m_configs[i].config.headerBytes();
-            int pos = findHeaderIn(rawData, offset, hdr);
+            int pos = findHeaderIn(rawData, offset, cachedHeaders[i]);
             if (pos >= 0 && pos < bestPos) {
                 bestPos = pos;
                 bestIdx = i;
@@ -300,7 +330,23 @@ QMap<QString, QVector<ParsedFrame>> StreamParser::parseBatch(const QByteArray &r
             frame.configName = name;
             frame.frameIndex = ++counters[name];
             frame.offsetInStream = bestPos;
-            results[name].append(std::move(frame));
+
+            if (doAutoSave && m_configs[bestIdx].isEndFrame) {
+                // End frame detected: save accumulated session frames
+                m_accumulatedFrames = sessionFrames;
+                performAutoSave();
+                // Reset session
+                for (auto it = sessionFrames.begin(); it != sessionFrames.end(); ++it)
+                    it.value().clear();
+            }
+
+            // Always add to total results
+            results[name].append(frame);
+
+            // Also accumulate for next auto-save session
+            if (doAutoSave && !m_configs[bestIdx].isEndFrame)
+                sessionFrames[name].append(std::move(frame));
+
             offset = bestPos + frameSize;
         } else {
             offset = bestPos + m_configs[bestIdx].config.headerSize();
@@ -314,6 +360,10 @@ QMap<QString, QVector<ParsedFrame>> StreamParser::parseBatch(const QByteArray &r
             }
         }
     }
+
+    // Restore non-lightweight mode
+    for (auto &p : m_parsers)
+        p.setLightweight(false);
 
     return results;
 }
