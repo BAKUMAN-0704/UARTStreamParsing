@@ -31,6 +31,9 @@ private:
     // Validate tail bytes
     bool validateTail(const QByteArray &frameData);
 
+    // Validate all PADDING fields match their fixed values
+    bool validatePadding(const QByteArray &frameData);
+
     // Read length field value from frame data
     int readLengthField(const QByteArray &frameData);
 

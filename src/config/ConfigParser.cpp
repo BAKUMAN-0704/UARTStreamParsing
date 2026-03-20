@@ -35,7 +35,7 @@ FrameConfig ConfigParser::parseXlsx(const QString &filePath, QString *errorMsg) 
             break;
 
         QStringList columns;
-        for (int col = 1; col <= 12; ++col) {
+        for (int col = 1; col <= 14; ++col) {
             QVariant cell = xlsx.read(row, col);
             columns.append(cell.isValid() ? cell.toString().trimmed() : "");
         }
@@ -84,8 +84,8 @@ FrameConfig ConfigParser::parseCsv(const QString &filePath, QString *errorMsg) {
             continue;
 
         QStringList columns = line.split(',');
-        // Pad to 12 columns
-        while (columns.size() < 12)
+        // Pad to 14 columns
+        while (columns.size() < 14)
             columns.append("");
         for (auto &col : columns)
             col = col.trimmed();
@@ -163,35 +163,38 @@ FrameFieldDef ConfigParser::parseRow(const QStringList &columns, QString *errorM
     // Column D: 数据类型
     field.dataType = parseDataType(columns[3]);
 
-    // Column E: 字节数
-    field.byteCount = columns[4].toInt();
+    // Column E: 起始字节 (informational, skipped)
+    // Column F: 结束字节 (informational, skipped)
+
+    // Column G: 字节数
+    field.byteCount = columns[6].toInt();
     if (field.byteCount <= 0) {
         if (errorMsg)
             *errorMsg = QString("字段 '%1' 字节数无效").arg(field.name);
         return field;
     }
 
-    // Column F: 固定值
-    field.fixedValue = parseHexValue(columns[5]);
+    // Column H: 固定值
+    field.fixedValue = parseHexValue(columns[7]);
 
-    // Column G: 大小端
-    field.endianness = parseEndianness(columns[6]);
+    // Column I: 大小端
+    field.endianness = parseEndianness(columns[8]);
 
-    // Column H: CRC算法
-    field.crcAlgorithm = parseCrcAlgorithm(columns[7]);
+    // Column J: CRC算法
+    field.crcAlgorithm = parseCrcAlgorithm(columns[9]);
 
-    // Column I: CRC起始字段序号
-    field.crcStartField = columns[8].toInt();
+    // Column K: CRC起始字段序号
+    field.crcStartField = columns[10].toInt();
 
-    // Column J: CRC结束字段序号
-    field.crcEndField = columns[9].toInt();
+    // Column L: CRC结束字段序号
+    field.crcEndField = columns[11].toInt();
 
-    // Column K: LENGTH含义
-    field.lengthMeaning = parseLengthMeaning(columns[10]);
+    // Column M: LENGTH含义
+    field.lengthMeaning = parseLengthMeaning(columns[12]);
 
-    // Column L: 备注
-    if (columns.size() > 11)
-        field.note = columns[11];
+    // Column N: 备注
+    if (columns.size() > 13)
+        field.note = columns[13];
 
     return field;
 }

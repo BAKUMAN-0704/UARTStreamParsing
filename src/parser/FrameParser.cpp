@@ -115,6 +115,10 @@ bool FrameParser::tryParseFrame(const QByteArray &data, int offset,
     if (!validateTail(frameData))
         return false;
 
+    // Validate padding fields
+    if (!validatePadding(frameData))
+        return false;
+
     // Validate CRC
     frame.crcValid = validateCrc(frameData);
 
@@ -169,6 +173,21 @@ bool FrameParser::validateTail(const QByteArray &frameData) {
 
     QByteArray frameTail = frameData.right(tailSize);
     return frameTail == tail;
+}
+
+bool FrameParser::validatePadding(const QByteArray &frameData) {
+    int offset = 0;
+    for (const auto &f : m_config.fields) {
+        if (f.fieldType == FieldType::PADDING && !f.fixedValue.isEmpty()) {
+            if (offset + f.byteCount > frameData.size())
+                return false;
+            QByteArray actual = frameData.mid(offset, f.byteCount);
+            if (actual != f.fixedValue)
+                return false;
+        }
+        offset += f.byteCount;
+    }
+    return true;
 }
 
 bool FrameParser::validateCrc(const QByteArray &frameData) {

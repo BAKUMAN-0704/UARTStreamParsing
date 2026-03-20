@@ -2,12 +2,28 @@
 #include <QFile>
 #include <QTextStream>
 
+static QString formatValue(const ParsedField &field) {
+    switch (field.dataType) {
+    case DataType::FLOAT:
+    case DataType::DOUBLE:
+        return QString::number(field.value.toDouble(), 'f', 6);
+    case DataType::UINT8:
+    case DataType::UINT16:
+    case DataType::UINT32:
+        return QString::number(field.value.toUInt());
+    case DataType::INT8:
+    case DataType::INT16:
+    case DataType::INT32:
+        return QString::number(field.value.toInt());
+    default:
+        return field.value.toString();
+    }
+}
+
 bool DataExporter::exportToTxt(const QString &filePath,
                                const QVector<ParsedFrame> &frames,
                                const FrameConfig &config,
                                QString *errorMsg) {
-    Q_UNUSED(config);
-
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         if (errorMsg)
@@ -17,46 +33,32 @@ bool DataExporter::exportToTxt(const QString &filePath,
 
     QTextStream out(&file);
     out.setCodec("UTF-8");
+    out.setGenerateByteOrderMark(true);
 
-    out << QString("UART数据解析结果") << "\n";
-    out << QString("总帧数: %1").arg(frames.size()) << "\n";
-    out << QString("========================================") << "\n\n";
+    // Collect DATA field definitions in config order
+    QVector<int> dataFieldIndices;
+    QStringList dataFieldNames;
+    for (int i = 0; i < config.fields.size(); ++i) {
+        if (config.fields[i].fieldType == FieldType::DATA) {
+            dataFieldIndices.append(i);
+            dataFieldNames.append(config.fields[i].name);
+        }
+    }
 
+    // Write tab-separated header line
+    out << "帧序号\t" << dataFieldNames.join('\t') << "\n";
+
+    // Write each frame as a row, DATA fields only, in config order
     for (const auto &frame : frames) {
-        out << QString("--- 帧 #%1 (偏移: %2, CRC: %3) ---")
-                   .arg(frame.frameIndex)
-                   .arg(frame.offsetInStream)
-                   .arg(frame.crcValid ? "OK" : "FAIL")
-            << "\n";
-
-        for (const auto &field : frame.fields) {
-            QString valueStr;
-            if (field.fieldType == FieldType::DATA) {
-                // Format based on data type
-                switch (field.dataType) {
-                case DataType::FLOAT:
-                case DataType::DOUBLE:
-                    valueStr = QString::number(field.value.toDouble(), 'f', 6);
-                    break;
-                case DataType::UINT8:
-                case DataType::UINT16:
-                case DataType::UINT32:
-                    valueStr = QString::number(field.value.toUInt());
-                    break;
-                case DataType::INT8:
-                case DataType::INT16:
-                case DataType::INT32:
-                    valueStr = QString::number(field.value.toInt());
-                    break;
-                default:
-                    valueStr = field.value.toString();
+        out << frame.frameIndex;
+        for (int fi : dataFieldIndices) {
+            out << '\t';
+            const QString &name = config.fields[fi].name;
+            for (const auto &pf : frame.fields) {
+                if (pf.name == name && pf.fieldType == FieldType::DATA) {
+                    out << formatValue(pf);
                     break;
                 }
-                out << QString("  %1 = %2  [原始: %3]")
-                           .arg(field.name, valueStr, field.rawHex)
-                    << "\n";
-            } else {
-                out << QString("  %1: %2").arg(field.name, field.rawHex) << "\n";
             }
         }
         out << "\n";

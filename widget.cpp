@@ -266,11 +266,11 @@ void Widget::displayResults(const QVector<ParsedFrame> &frames) {
         return;
     }
 
-    // Build column list: fixed columns + DATA field columns
+    // Build column list: 帧序号 + DATA fields in config order
     QStringList headers;
-    headers << "帧序号" << "帧偏移" << "CRC";
+    headers << "帧序号";
 
-    QVector<int> dataFieldIndices; // indices into FrameConfig::fields for DATA fields
+    QVector<int> dataFieldIndices;
     for (int i = 0; i < m_config.fields.size(); ++i) {
         if (m_config.fields[i].fieldType == FieldType::DATA) {
             headers << m_config.fields[i].name;
@@ -285,18 +285,15 @@ void Widget::displayResults(const QVector<ParsedFrame> &frames) {
     for (int row = 0; row < frames.size(); ++row) {
         const auto &frame = frames[row];
 
-        ui->tableResults->setItem(row, 0, new QTableWidgetItem(QString::number(frame.frameIndex)));
-        ui->tableResults->setItem(row, 1,
-                                  new QTableWidgetItem(QString::number(frame.offsetInStream)));
-        ui->tableResults->setItem(row, 2, new QTableWidgetItem(frame.crcValid ? "OK" : "FAIL"));
+        ui->tableResults->setItem(
+            row, 0, new QTableWidgetItem(QString::number(frame.frameIndex)));
 
-        // Fill DATA fields
-        int col = 3;
+        int col = 1;
         for (int fi : dataFieldIndices) {
             QString valueStr;
-            // Find corresponding parsed field
+            const QString &name = m_config.fields[fi].name;
             for (const auto &pf : frame.fields) {
-                if (pf.name == m_config.fields[fi].name && pf.fieldType == FieldType::DATA) {
+                if (pf.name == name && pf.fieldType == FieldType::DATA) {
                     switch (pf.dataType) {
                     case DataType::FLOAT:
                     case DataType::DOUBLE:
