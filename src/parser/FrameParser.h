@@ -4,41 +4,32 @@
 #include "../config/FrameFieldDef.h"
 #include <QByteArray>
 #include <QVariant>
+#include <functional>
 
 class FrameParser {
 public:
+    using ProgressCallback = std::function<void(int percent)>;
+
     void setConfig(const FrameConfig &config);
-    QVector<ParsedFrame> parse(const QByteArray &rawData);
+    QVector<ParsedFrame> parse(const QByteArray &rawData,
+                               ProgressCallback progressCb = nullptr);
 
 private:
     FrameConfig m_config;
 
-    // Try to parse one frame starting at the given offset
-    // Returns true if successful, sets frameEnd to the byte after the frame
     bool tryParseFrame(const QByteArray &data, int offset, ParsedFrame &frame,
                        int &frameEnd);
-
-    // Extract a typed value from raw bytes
     QVariant extractValue(const QByteArray &data, int offset, DataType type,
                           int byteCount, Endianness endian);
-
-    // Find next header occurrence starting from offset
     int findHeader(const QByteArray &data, int offset);
-
-    // Validate CRC for a frame
     bool validateCrc(const QByteArray &frameData);
-
-    // Validate tail bytes
     bool validateTail(const QByteArray &frameData);
-
-    // Validate all PADDING fields match their fixed values
     bool validatePadding(const QByteArray &frameData);
-
-    // Read length field value from frame data
     int readLengthField(const QByteArray &frameData);
-
-    // Convert raw bytes to hex string
     static QString toHexString(const QByteArray &data);
+
+    // Cached header bytes for fast searching
+    QByteArray m_headerBytes;
 };
 
 #endif // FRAMEPARSER_H

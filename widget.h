@@ -4,7 +4,10 @@
 #include "src/config/FrameFieldDef.h"
 #include "src/datasource/SerialPortManager.h"
 #include "src/parser/FrameParser.h"
+#include <QThread>
 #include <QWidget>
+
+class ParseWorker;
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -38,6 +41,7 @@ private:
     void updateParseButton();
     void showResultDialog(const QVector<ParsedFrame> &frames);
     void setStatus(const QString &msg);
+    void setParsingUi(bool parsing);
     static QString formatFieldValue(const ParsedField &pf);
 
     Ui::Widget *ui;
@@ -47,6 +51,10 @@ private:
     QVector<ParsedFrame> m_parsedFrames;
     FrameParser m_parser;
     SerialPortManager *m_serialManager;
+
+    // Worker thread for file parsing
+    QThread *m_workerThread = nullptr;
+    ParseWorker *m_worker = nullptr;
 };
 
 #endif // WIDGET_H

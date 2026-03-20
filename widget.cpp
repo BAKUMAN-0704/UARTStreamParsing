@@ -8,20 +8,14 @@
 #endif
 
 #include "src/config/ConfigParser.h"
-#include "src/datasource/FileDataSource.h"
 #include "src/export/DataExporter.h"
+#include "src/worker/ParseWorker.h"
 
 #include <QApplication>
-#include <QDialog>
 #include <QFileDialog>
-#include <QHBoxLayout>
-#include <QHeaderView>
 #include <QMessageBox>
-#include <QPushButton>
 #include <QSerialPort>
-#include <QTableWidget>
 #include <QTimer>
-#include <QVBoxLayout>
 
 Widget::Widget(QWidget *parent) : QWidget(parent), ui(new Ui::Widget) {
     ui->setupUi(this);
@@ -253,8 +247,10 @@ void Widget::onClosePort() {
 void Widget::onBrowseDataFile() {
     QString filePath = QFileDialog::getOpenFileName(
         this, "选择数据文件", QString(), "文本文件 (*.txt);;所有文件 (*.*)");
-    if (!filePath.isEmpty())
+    if (!filePath.isEmpty()) {
         ui->editDataFilePath->setText(filePath);
+        updateParseButton();
+    }
 }
 
 void Widget::onParse() {
@@ -265,7 +261,6 @@ void Widget::onParse() {
 
     bool isFileMode = ui->radioFile->isChecked();
 
-    // For file mode, read + parse with progress
     if (isFileMode) {
         QString path = ui->editDataFilePath->text();
         if (path.isEmpty()) {
@@ -273,55 +268,69 @@ void Widget::onParse() {
             return;
         }
 
-        // Show progress bar
-        ui->progressBar->setVisible(true);
-        ui->progressBar->setRange(0, 100);
-        ui->progressBar->setValue(0);
-        ui->btnParse->setEnabled(false);
-        QApplication::processEvents();
-
-        // Step 1: Read file (40%)
-        setStatus("正在读取文件...");
-        ui->progressBar->setValue(10);
-        QApplication::processEvents();
-
-        QString errorMsg;
-        m_rawData = FileDataSource::readHexFile(path, &errorMsg);
-        if (!errorMsg.isEmpty()) {
-            ui->progressBar->setVisible(false);
-            ui->btnParse->setEnabled(true);
-            QMessageBox::critical(this, "读取失败", errorMsg);
+        // Prevent re-entry while a worker is running
+        if (m_workerThread) {
+            QMessageBox::warning(this, "提示", "解析正在进行中，请稍候");
             return;
         }
 
-        ui->progressBar->setValue(40);
-        QApplication::processEvents();
+        setParsingUi(true);
 
-        // Step 2: Parse (90%)
-        setStatus(QString("正在解析 %1 字节数据...").arg(m_rawData.size()));
-        ui->progressBar->setValue(50);
-        QApplication::processEvents();
+        // Create worker + thread
+        m_workerThread = new QThread(this);
+        m_worker = new ParseWorker();
+        m_worker->setConfig(m_config);
+        m_worker->moveToThread(m_workerThread);
 
-        m_parsedFrames = m_parser.parse(m_rawData);
+        // Start work when thread starts
+        connect(m_workerThread, &QThread::started, m_worker,
+                [worker = m_worker, path]() { worker->process(path); });
 
-        ui->progressBar->setValue(90);
-        QApplication::processEvents();
+        // Progress updates (queued connection, safe for UI)
+        connect(m_worker, &ParseWorker::progress, this,
+                [this](int pct, const QString &status) {
+                    ui->progressBar->setValue(pct);
+                    setStatus(status);
+                });
 
-        // Step 3: Done
-        ui->progressBar->setValue(100);
-        setStatus(QString("解析完成: %1 帧, 共 %2 字节")
-                      .arg(m_parsedFrames.size())
-                      .arg(m_rawData.size()));
-        QApplication::processEvents();
+        // Finished handler
+        connect(m_worker, &ParseWorker::finished, this,
+                [this](bool success, const QString &errorMsg) {
+                    if (success) {
+                        // Move results from worker to widget
+                        m_rawData = std::move(m_worker->m_rawData);
+                        m_parsedFrames = std::move(m_worker->m_frames);
 
-        // Hide progress bar after brief delay
-        QTimer::singleShot(500, this, [this]() {
-            ui->progressBar->setVisible(false);
-            updateParseButton();
-        });
+                        setStatus(QString("解析完成: %1 帧, 共 %2 字节")
+                                      .arg(m_parsedFrames.size())
+                                      .arg(m_rawData.size()));
+                        ui->btnExport->setEnabled(!m_parsedFrames.isEmpty());
+
+                        if (m_parsedFrames.isEmpty()) {
+                            QMessageBox::information(this, "解析结果",
+                                                     "未找到有效帧");
+                        } else {
+                            showResultDialog(m_parsedFrames);
+                        }
+                    } else {
+                        QMessageBox::critical(this, "解析失败", errorMsg);
+                    }
+
+                    // Clean up thread
+                    m_workerThread->quit();
+                    m_workerThread->wait();
+                    m_worker->deleteLater();
+                    m_workerThread->deleteLater();
+                    m_worker = nullptr;
+                    m_workerThread = nullptr;
+
+                    setParsingUi(false);
+                });
+
+        m_workerThread->start();
 
     } else {
-        // Serial mode: take buffer and parse directly
+        // Serial mode: parse directly in UI thread (data is small)
         if (m_serialManager->isOpen())
             m_rawData = m_serialManager->takeBuffer();
 
@@ -334,15 +343,25 @@ void Widget::onParse() {
         setStatus(QString("解析完成: %1 帧, 共 %2 字节")
                       .arg(m_parsedFrames.size())
                       .arg(m_rawData.size()));
-    }
 
-    ui->btnExport->setEnabled(!m_parsedFrames.isEmpty());
+        ui->btnExport->setEnabled(!m_parsedFrames.isEmpty());
 
-    if (m_parsedFrames.isEmpty()) {
-        QMessageBox::information(this, "解析结果", "未找到有效帧");
-    } else {
-        showResultDialog(m_parsedFrames);
+        if (m_parsedFrames.isEmpty()) {
+            QMessageBox::information(this, "解析结果", "未找到有效帧");
+        } else {
+            showResultDialog(m_parsedFrames);
+        }
     }
+}
+
+void Widget::setParsingUi(bool parsing) {
+    ui->progressBar->setVisible(parsing);
+    ui->progressBar->setValue(0);
+    ui->btnParse->setEnabled(!parsing);
+    ui->btnExport->setEnabled(!parsing && !m_parsedFrames.isEmpty());
+    ui->btnLoadConfig->setEnabled(!parsing);
+    ui->btnBrowseConfig->setEnabled(!parsing);
+    ui->btnBrowseDataFile->setEnabled(!parsing);
 }
 
 void Widget::onExport() {
@@ -403,88 +422,31 @@ QString Widget::formatFieldValue(const ParsedField &pf) {
 
 void Widget::showResultDialog(const QVector<ParsedFrame> &frames) {
     // Collect DATA field names in config order
-    QStringList headers;
-    headers << "帧序号";
-    QVector<int> dataFieldIndices;
-    for (int i = 0; i < m_config.fields.size(); ++i) {
-        if (m_config.fields[i].fieldType == FieldType::DATA) {
-            headers << m_config.fields[i].name;
-            dataFieldIndices.append(i);
-        }
+    QStringList dataFieldNames;
+    for (const auto &field : m_config.fields) {
+        if (field.fieldType == FieldType::DATA)
+            dataFieldNames << field.name;
     }
 
-    // Create dialog
-    QDialog *dlg = new QDialog(this);
-    dlg->setWindowTitle(
-        QString("解析结果 - 共 %1 帧").arg(frames.size()));
-    dlg->resize(700, 450);
-    dlg->setAttribute(Qt::WA_DeleteOnClose);
-
-    auto *layout = new QVBoxLayout(dlg);
-    layout->setContentsMargins(8, 8, 8, 8);
-
-    // Table
-    auto *table = new QTableWidget(frames.size(), headers.size(), dlg);
-    table->setHorizontalHeaderLabels(headers);
-    table->setAlternatingRowColors(true);
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table->horizontalHeader()->setStretchLastSection(true);
-    table->verticalHeader()->setVisible(false);
-    table->setStyleSheet(R"(
-        QTableWidget {
-            gridline-color: #e0e0e0;
-            font-size: 13px;
-        }
-        QTableWidget::item {
-            padding: 4px 8px;
-        }
-        QHeaderView::section {
-            background: #f0f0f0;
-            padding: 6px 8px;
-            border: none;
-            border-bottom: 2px solid #0078d4;
-            font-weight: bold;
-        }
-    )");
-
-    for (int row = 0; row < frames.size(); ++row) {
-        const auto &frame = frames[row];
-        table->setItem(row, 0,
-                       new QTableWidgetItem(QString::number(frame.frameIndex)));
-
-        int col = 1;
-        for (int fi : dataFieldIndices) {
-            const QString &name = m_config.fields[fi].name;
-            for (const auto &pf : frame.fields) {
-                if (pf.name == name && pf.fieldType == FieldType::DATA) {
-                    table->setItem(row, col,
-                                   new QTableWidgetItem(formatFieldValue(pf)));
-                    break;
-                }
+    // Build example text from first frame only
+    const auto &frame = frames.first();
+    QString detail;
+    for (const auto &name : dataFieldNames) {
+        for (const auto &pf : frame.fields) {
+            if (pf.name == name && pf.fieldType == FieldType::DATA) {
+                detail += QString("  %1 = %2\n").arg(name, formatFieldValue(pf));
+                break;
             }
-            ++col;
         }
     }
-    table->resizeColumnsToContents();
 
-    layout->addWidget(table);
+    QString msg = QString("解析完成，共 %1 帧\n\n"
+                          "--- 第 1 帧示例 ---\n%2\n"
+                          "请使用「导出」按钮将全部结果保存为 TXT 文件。")
+                      .arg(frames.size())
+                      .arg(detail);
 
-    // Close button
-    auto *btnLayout = new QHBoxLayout();
-    btnLayout->addStretch();
-    auto *btnClose = new QPushButton("关闭", dlg);
-    btnClose->setMinimumWidth(80);
-    btnClose->setStyleSheet(R"(
-        QPushButton { padding: 6px 16px; border: 1px solid #c0c0c0;
-                      border-radius: 4px; background: #f0f0f0; }
-        QPushButton:hover { background: #e0e0e0; }
-    )");
-    connect(btnClose, &QPushButton::clicked, dlg, &QDialog::close);
-    btnLayout->addWidget(btnClose);
-    layout->addLayout(btnLayout);
-
-    dlg->show();
+    QMessageBox::information(this, "解析结果", msg);
 }
 
 void Widget::setStatus(const QString &msg) { ui->labelStatus->setText(msg); }

@@ -3,15 +3,20 @@
 
 #include <QByteArray>
 #include <QString>
+#include <functional>
 
 class FileDataSource {
 public:
-    // Read hex data from a TXT file
-    // Supports formats: "0x11 0x22", "11 22", "11,22", mixed
-    static QByteArray readHexFile(const QString &filePath, QString *errorMsg = nullptr);
+    using ProgressCallback = std::function<void(int percent)>;
 
-    // Parse a hex string into raw bytes
-    static QByteArray parseHexString(const QString &hexText, QString *errorMsg = nullptr);
+    // Read hex data from a TXT file (streaming, line by line)
+    static QByteArray readHexFile(const QString &filePath,
+                                  QString *errorMsg = nullptr,
+                                  ProgressCallback progressCb = nullptr);
+
+    // Parse a hex string into raw bytes (for small data / serial)
+    static QByteArray parseHexString(const QString &hexText,
+                                     QString *errorMsg = nullptr);
 };
 
 #endif // FILEDATASOURCE_H

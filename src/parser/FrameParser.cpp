@@ -3,18 +3,23 @@
 #include <QtEndian>
 #include <cstring>
 
-void FrameParser::setConfig(const FrameConfig &config) { m_config = config; }
+void FrameParser::setConfig(const FrameConfig &config) {
+    m_config = config;
+    m_headerBytes = m_config.headerBytes();
+}
 
-QVector<ParsedFrame> FrameParser::parse(const QByteArray &rawData) {
+QVector<ParsedFrame> FrameParser::parse(const QByteArray &rawData,
+                                        ProgressCallback progressCb) {
     QVector<ParsedFrame> frames;
     if (m_config.fields.isEmpty() || rawData.isEmpty())
         return frames;
 
+    const int totalSize = rawData.size();
     int offset = 0;
     int frameCounter = 0;
+    int lastPct = -1;
 
-    while (offset < rawData.size()) {
-        // Find next header
+    while (offset < totalSize) {
         int headerPos = findHeader(rawData, offset);
         if (headerPos < 0)
             break;
@@ -24,11 +29,19 @@ QVector<ParsedFrame> FrameParser::parse(const QByteArray &rawData) {
         if (tryParseFrame(rawData, headerPos, frame, frameEnd)) {
             frame.frameIndex = ++frameCounter;
             frame.offsetInStream = headerPos;
-            frames.append(frame);
+            frames.append(std::move(frame));
             offset = frameEnd;
         } else {
-            // Header found but frame invalid, skip past this header
             offset = headerPos + m_config.headerSize();
+        }
+
+        // Report progress periodically
+        if (progressCb) {
+            int pct = static_cast<int>(static_cast<qint64>(offset) * 100 / totalSize);
+            if (pct != lastPct) {
+                progressCb(pct);
+                lastPct = pct;
+            }
         }
     }
 
@@ -36,12 +49,16 @@ QVector<ParsedFrame> FrameParser::parse(const QByteArray &rawData) {
 }
 
 int FrameParser::findHeader(const QByteArray &data, int offset) {
-    QByteArray header = m_config.headerBytes();
-    if (header.isEmpty())
-        return offset; // no header defined
+    if (m_headerBytes.isEmpty())
+        return offset;
 
-    for (int i = offset; i <= data.size() - header.size(); ++i) {
-        if (data.mid(i, header.size()) == header)
+    const char *dataPtr = data.constData();
+    const char *headerPtr = m_headerBytes.constData();
+    const int headerLen = m_headerBytes.size();
+    const int limit = data.size() - headerLen;
+
+    for (int i = offset; i <= limit; ++i) {
+        if (std::memcmp(dataPtr + i, headerPtr, headerLen) == 0)
             return i;
     }
     return -1;
@@ -51,9 +68,7 @@ bool FrameParser::tryParseFrame(const QByteArray &data, int offset,
                                 ParsedFrame &frame, int &frameEnd) {
     int totalSize = m_config.totalFrameSize();
 
-    // If there's a LENGTH field, we need to read it to determine actual frame size
     if (m_config.hasLengthField()) {
-        // First check if we have enough bytes to reach the LENGTH field
         int lengthFieldOffset = 0;
         int lengthFieldByteCount = 0;
         Endianness lengthEndian = Endianness::LITTLE;
@@ -74,28 +89,23 @@ bool FrameParser::tryParseFrame(const QByteArray &data, int offset,
         if (offset + lengthFieldOffset + lengthFieldByteCount > data.size())
             return false;
 
-        // Read length value
-        QByteArray lengthBytes =
-            data.mid(offset + lengthFieldOffset, lengthFieldByteCount);
+        const char *lp = data.constData() + offset + lengthFieldOffset;
         uint32_t lengthVal = 0;
         if (lengthFieldByteCount == 1) {
-            lengthVal = static_cast<uint8_t>(lengthBytes[0]);
+            lengthVal = static_cast<uint8_t>(*lp);
         } else if (lengthFieldByteCount == 2) {
-            if (lengthEndian == Endianness::BIG)
-                lengthVal = qFromBigEndian<uint16_t>(lengthBytes.constData());
-            else
-                lengthVal = qFromLittleEndian<uint16_t>(lengthBytes.constData());
+            lengthVal = (lengthEndian == Endianness::BIG)
+                            ? qFromBigEndian<uint16_t>(lp)
+                            : qFromLittleEndian<uint16_t>(lp);
         } else if (lengthFieldByteCount == 4) {
-            if (lengthEndian == Endianness::BIG)
-                lengthVal = qFromBigEndian<uint32_t>(lengthBytes.constData());
-            else
-                lengthVal = qFromLittleEndian<uint32_t>(lengthBytes.constData());
+            lengthVal = (lengthEndian == Endianness::BIG)
+                            ? qFromBigEndian<uint32_t>(lp)
+                            : qFromLittleEndian<uint32_t>(lp);
         }
 
         if (lengthMeaning == LengthMeaning::TOTAL) {
             totalSize = static_cast<int>(lengthVal);
         } else {
-            // PAYLOAD: length is data area only, add non-data field sizes
             int nonDataSize = 0;
             for (const auto &f : m_config.fields) {
                 if (f.fieldType != FieldType::DATA)
@@ -105,21 +115,16 @@ bool FrameParser::tryParseFrame(const QByteArray &data, int offset,
         }
     }
 
-    // Check if we have enough data
     if (offset + totalSize > data.size())
         return false;
 
     QByteArray frameData = data.mid(offset, totalSize);
 
-    // Validate tail
     if (!validateTail(frameData))
         return false;
-
-    // Validate padding fields
     if (!validatePadding(frameData))
         return false;
 
-    // Validate CRC
     frame.crcValid = validateCrc(frameData);
 
     // Extract all fields
@@ -138,14 +143,10 @@ bool FrameParser::tryParseFrame(const QByteArray &data, int offset,
 
         switch (fieldDef.fieldType) {
         case FieldType::DATA:
+        case FieldType::LENGTH:
             pf.value = extractValue(frameData, fieldOffset, fieldDef.dataType,
                                     fieldDef.byteCount, fieldDef.endianness);
             break;
-        case FieldType::LENGTH: {
-            pf.value = extractValue(frameData, fieldOffset, fieldDef.dataType,
-                                    fieldDef.byteCount, fieldDef.endianness);
-            break;
-        }
         case FieldType::HEADER:
         case FieldType::TAIL:
         case FieldType::PADDING:
@@ -154,7 +155,7 @@ bool FrameParser::tryParseFrame(const QByteArray &data, int offset,
             break;
         }
 
-        frame.fields.append(pf);
+        frame.fields.append(std::move(pf));
         fieldOffset += fieldDef.byteCount;
     }
 
@@ -166,13 +167,11 @@ bool FrameParser::validateTail(const QByteArray &frameData) {
     QByteArray tail = m_config.tailBytes();
     if (tail.isEmpty())
         return true;
-
-    int tailSize = m_config.tailSize();
+    int tailSize = tail.size();
     if (frameData.size() < tailSize)
         return false;
-
-    QByteArray frameTail = frameData.right(tailSize);
-    return frameTail == tail;
+    return std::memcmp(frameData.constData() + frameData.size() - tailSize,
+                       tail.constData(), tailSize) == 0;
 }
 
 bool FrameParser::validatePadding(const QByteArray &frameData) {
@@ -181,8 +180,8 @@ bool FrameParser::validatePadding(const QByteArray &frameData) {
         if (f.fieldType == FieldType::PADDING && !f.fixedValue.isEmpty()) {
             if (offset + f.byteCount > frameData.size())
                 return false;
-            QByteArray actual = frameData.mid(offset, f.byteCount);
-            if (actual != f.fixedValue)
+            if (std::memcmp(frameData.constData() + offset,
+                            f.fixedValue.constData(), f.byteCount) != 0)
                 return false;
         }
         offset += f.byteCount;
@@ -197,19 +196,16 @@ bool FrameParser::validateCrc(const QByteArray &frameData) {
         if (f.crcAlgorithm == CrcAlgorithm::NONE)
             continue;
 
-        // Get the data range for CRC calculation
         QByteArray crcData =
             m_config.fieldRange(frameData, f.crcStartField, f.crcEndField);
         if (crcData.isEmpty())
             return false;
 
-        // Get the CRC bytes from the frame
         int crcOffset = m_config.fieldOffset(f.index);
         if (crcOffset < 0 || crcOffset + f.byteCount > frameData.size())
             return false;
 
         QByteArray expectedCrc = frameData.mid(crcOffset, f.byteCount);
-
         if (!CrcCalculator::verify(f.crcAlgorithm, crcData, expectedCrc,
                                    f.endianness))
             return false;
@@ -223,8 +219,8 @@ int FrameParser::readLengthField(const QByteArray &frameData) {
             int offset = m_config.fieldOffset(f.index);
             if (offset < 0)
                 return -1;
-            QVariant val =
-                extractValue(frameData, offset, f.dataType, f.byteCount, f.endianness);
+            QVariant val = extractValue(frameData, offset, f.dataType,
+                                        f.byteCount, f.endianness);
             return val.toInt();
         }
     }
@@ -245,57 +241,39 @@ QVariant FrameParser::extractValue(const QByteArray &data, int offset,
     case DataType::INT8:
         return static_cast<int>(static_cast<int8_t>(*ptr));
     case DataType::UINT16: {
-        uint16_t val;
-        if (endian == Endianness::BIG)
-            val = qFromBigEndian<uint16_t>(ptr);
-        else
-            val = qFromLittleEndian<uint16_t>(ptr);
+        uint16_t val = (endian == Endianness::BIG) ? qFromBigEndian<uint16_t>(ptr)
+                                                   : qFromLittleEndian<uint16_t>(ptr);
         return static_cast<uint>(val);
     }
     case DataType::INT16: {
+        uint16_t raw = (endian == Endianness::BIG) ? qFromBigEndian<uint16_t>(ptr)
+                                                   : qFromLittleEndian<uint16_t>(ptr);
         int16_t val;
-        uint16_t raw;
-        if (endian == Endianness::BIG)
-            raw = qFromBigEndian<uint16_t>(ptr);
-        else
-            raw = qFromLittleEndian<uint16_t>(ptr);
         std::memcpy(&val, &raw, sizeof(val));
         return static_cast<int>(val);
     }
     case DataType::UINT32: {
-        uint32_t val;
-        if (endian == Endianness::BIG)
-            val = qFromBigEndian<uint32_t>(ptr);
-        else
-            val = qFromLittleEndian<uint32_t>(ptr);
+        uint32_t val = (endian == Endianness::BIG) ? qFromBigEndian<uint32_t>(ptr)
+                                                   : qFromLittleEndian<uint32_t>(ptr);
         return static_cast<quint32>(val);
     }
     case DataType::INT32: {
+        uint32_t raw = (endian == Endianness::BIG) ? qFromBigEndian<uint32_t>(ptr)
+                                                   : qFromLittleEndian<uint32_t>(ptr);
         int32_t val;
-        uint32_t raw;
-        if (endian == Endianness::BIG)
-            raw = qFromBigEndian<uint32_t>(ptr);
-        else
-            raw = qFromLittleEndian<uint32_t>(ptr);
         std::memcpy(&val, &raw, sizeof(val));
         return static_cast<qint32>(val);
     }
     case DataType::FLOAT: {
-        uint32_t raw;
-        if (endian == Endianness::BIG)
-            raw = qFromBigEndian<uint32_t>(ptr);
-        else
-            raw = qFromLittleEndian<uint32_t>(ptr);
+        uint32_t raw = (endian == Endianness::BIG) ? qFromBigEndian<uint32_t>(ptr)
+                                                   : qFromLittleEndian<uint32_t>(ptr);
         float val;
         std::memcpy(&val, &raw, sizeof(val));
         return static_cast<double>(val);
     }
     case DataType::DOUBLE: {
-        uint64_t raw;
-        if (endian == Endianness::BIG)
-            raw = qFromBigEndian<uint64_t>(ptr);
-        else
-            raw = qFromLittleEndian<uint64_t>(ptr);
+        uint64_t raw = (endian == Endianness::BIG) ? qFromBigEndian<uint64_t>(ptr)
+                                                   : qFromLittleEndian<uint64_t>(ptr);
         double val;
         std::memcpy(&val, &raw, sizeof(val));
         return val;
@@ -312,7 +290,9 @@ QString FrameParser::toHexString(const QByteArray &data) {
     for (int i = 0; i < data.size(); ++i) {
         if (i > 0)
             result += " ";
-        result += QString("%1").arg(static_cast<uint8_t>(data[i]), 2, 16, QChar('0')).toUpper();
+        result += QString("%1")
+                      .arg(static_cast<uint8_t>(data[i]), 2, 16, QChar('0'))
+                      .toUpper();
     }
     return result;
 }

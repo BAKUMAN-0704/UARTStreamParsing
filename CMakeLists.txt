@@ -33,6 +33,8 @@ set(PROJECT_SOURCES
         src/datasource/FileDataSource.cpp
         src/export/DataExporter.h
         src/export/DataExporter.cpp
+        src/worker/ParseWorker.h
+        src/worker/ParseWorker.cpp
         resource/fonts.qrc
 )
 
@@ -49,6 +51,7 @@ else()
     else()
         add_executable(UARTStreamParsing
             ${PROJECT_SOURCES}
+            resource/app_icon.rc
         )
     endif()
 endif()

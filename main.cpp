@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QFont>
 #include <QFontDatabase>
+#include <QIcon>
 
 int main(int argc, char *argv[]) {
     QApplication a(argc, argv);
@@ -18,6 +19,8 @@ int main(int argc, char *argv[]) {
         QFont appFont(family, 9);
         a.setFont(appFont);
     }
+
+    a.setWindowIcon(QIcon(":/icons/favicon.ico"));
 
     Widget w;
     w.show();
