@@ -24,6 +24,7 @@ CompileFlags:
     - "-ID:/Qt/5.15.2/mingw81_64/include/QtCore"
     - "-ID:/Qt/5.15.2/mingw81_64/include/QtGui"
     - "-ID:/Qt/5.15.2/mingw81_64/include/QtWidgets"
+    - "-ID:/Qt/5.15.2/mingw81_64/include/QtSerialPort"
     # 添加这个，解决一些标准库找不到的问题
     - "-isystemD:/Qt/Tools/mingw810_64/lib/gcc/x86_64-w64-mingw32/8.1.0/include/c++"
     - "-isystemD:/Qt/Tools/mingw810_64/lib/gcc/x86_64-w64-mingw32/8.1.0/include/c++/x86_64-w64-mingw32"
