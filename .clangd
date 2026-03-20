@@ -1,0 +1,36 @@
+CompileFlags:
+  # 1. 指向正确的编译数据库目录（确保这个路径下真的有 compile_commands.json）
+  # 如果不确定，可以先注释掉这一行，让 clangd 自动在 build 目录找
+  CompilationDatabase: "build"
+
+  Add:
+    # --- 核心修复：告诉 Clang 模拟 GCC/MinGW 行为，而不是 MSVC ---
+    - "--target=x86_64-w64-mingw32"
+    - "-driver-mode=g++"
+
+    # --- 强制指定 C++ 标准 (Qt 5.15 建议至少 C++11/14，C++17 也没问题) ---
+    - "-std=c++17"
+
+    # --- 关键宏定义 (防止头文件解析错误) ---
+    - "-DQT_CORE_LIB"
+    - "-DQT_GUI_LIB"
+    - "-DQT_WIDGETS_LIB"
+    - "-DUNICODE"
+    - "-D_UNICODE"
+    - "-DMINGW_HAS_SECURE_API=1"
+
+    # --- 包含路径 (你原来的路径是对的，保留即可) ---
+    - "-ID:/Qt/5.15.2/mingw81_64/include"
+    - "-ID:/Qt/5.15.2/mingw81_64/include/QtCore"
+    - "-ID:/Qt/5.15.2/mingw81_64/include/QtGui"
+    - "-ID:/Qt/5.15.2/mingw81_64/include/QtWidgets"
+    # 添加这个，解决一些标准库找不到的问题
+    - "-isystemD:/Qt/Tools/mingw810_64/lib/gcc/x86_64-w64-mingw32/8.1.0/include/c++"
+    - "-isystemD:/Qt/Tools/mingw810_64/lib/gcc/x86_64-w64-mingw32/8.1.0/include/c++/x86_64-w64-mingw32"
+
+Diagnostics:
+  # 不要屏蔽所有错误 ("*")，否则你不知道哪里真的写错了
+  # 只屏蔽那些因为兼容性导致的假阳性错误
+  Suppress:
+    - "drv_unknown_argument"
+    - "invalid_constexpr" # Qt5 在 Clang 下常见的兼容性警告
