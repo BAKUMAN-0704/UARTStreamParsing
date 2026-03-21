@@ -59,6 +59,11 @@ private:
     QMap<QString, QVector<ParsedFrame>> m_parsedFramesByConfig;
     bool m_streamingActive = false;
 
+    // HEX text mode for serial: convert "55 AA" text to binary
+    QByteArray convertHexTextToBinary(const QByteArray &hexText);
+    int m_pendingNibble = -1; // carry-over half-byte between chunks
+    bool m_hexSkipNextX = false; // skip 'x'/'X' after '0' in "0x" prefix
+
     // Worker thread for file parsing
     QThread *m_workerThread = nullptr;
     ParseWorker *m_worker = nullptr;

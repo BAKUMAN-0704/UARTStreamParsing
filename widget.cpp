@@ -193,23 +193,62 @@ void Widget::initSerialUI() {
 // ─── Config management ───
 
 void Widget::onBrowseConfig() {
-    QString filePath = QFileDialog::getOpenFileName(
-        this, "选择配置文件", QString(),
+    QStringList filePaths = QFileDialog::getOpenFileNames(
+        this, "选择配置文件 (可多选)", QString(),
         "配置文件 (*.xlsx *.csv);;Excel文件 (*.xlsx);;CSV文件 (*.csv)");
-    if (!filePath.isEmpty())
-        ui->editConfigPath->setText(filePath);
+    if (filePaths.isEmpty())
+        return;
+
+    // Load each selected file directly
+    int added = 0;
+    QStringList errors;
+    for (const QString &path : filePaths) {
+        QString name = QFileInfo(path).baseName();
+
+        // Skip duplicates
+        bool exists = false;
+        for (const auto &c : m_streamParser->configs()) {
+            if (c.name == name) {
+                exists = true;
+                break;
+            }
+        }
+        if (exists)
+            continue;
+
+        QString errorMsg;
+        FrameConfig config = ConfigParser::loadConfig(path, &errorMsg);
+        if (!errorMsg.isEmpty()) {
+            errors << QString("%1: %2").arg(name, errorMsg);
+            continue;
+        }
+
+        ConfigEntry entry{name, path, config, false};
+        m_streamParser->addConfig(entry);
+        ui->listConfigs->addItem(name);
+        ++added;
+    }
+
+    ui->editConfigPath->clear();
+    updateParseButton();
+
+    if (!errors.isEmpty())
+        QMessageBox::warning(this, "部分加载失败", errors.join("\n"));
+
+    if (added > 0)
+        setStatus(QString("已添加 %1 个配置").arg(added));
 }
 
 void Widget::onAddConfig() {
     QString path = ui->editConfigPath->text();
     if (path.isEmpty()) {
-        QMessageBox::warning(this, "提示", "请先选择配置文件");
+        // No path in text field — trigger browse dialog instead
+        onBrowseConfig();
         return;
     }
 
     QString name = QFileInfo(path).baseName();
 
-    // Check duplicate
     for (const auto &c : m_streamParser->configs()) {
         if (c.name == name) {
             QMessageBox::warning(this, "提示", QString("配置 \"%1\" 已存在").arg(name));
@@ -336,6 +375,15 @@ void Widget::onOpenPort() {
     else
         config.parity = QSerialPort::NoParity;
 
+    // Warn if auto-save directory is not set
+    if (ui->editAutoSaveDir->text().trimmed().isEmpty()) {
+        auto ret = QMessageBox::warning(this, "提示",
+            "未设置自动保存目录，解析到结束帧时数据不会自动保存。\n是否继续？",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (ret == QMessageBox::No)
+            return;
+    }
+
     if (m_serialManager->openPort(config)) {
         ui->btnOpenPort->setEnabled(false);
         ui->btnClosePort->setEnabled(true);
@@ -343,13 +391,23 @@ void Widget::onOpenPort() {
         m_rawData.clear();
         m_streamParser->resetStream();
 
+        // Sync auto-save dir from UI before streaming starts
+        QString autoSaveDir = ui->editAutoSaveDir->text().trimmed();
+        if (!autoSaveDir.isEmpty())
+            m_streamParser->setAutoSaveDir(autoSaveDir);
+
+        // Serial always uses real-time streaming when configs are loaded
         bool hasConfigs = !m_streamParser->configs().isEmpty();
-        m_streamingActive = ui->chkStreamParse->isChecked() && hasConfigs;
+        m_streamingActive = hasConfigs;
+
+        // Reset HEX text conversion state
+        m_pendingNibble = -1;
+        m_hexSkipNextX = false;
 
         if (m_streamingActive)
-            setStatus("实时解析模式已启动 - " + config.portName);
+            setStatus("实时解析已启动 - " + config.portName);
         else
-            setStatus("串口已打开: " + config.portName);
+            setStatus("串口已打开 (未加载配置) - " + config.portName);
         updateParseButton();
     }
 }
@@ -390,9 +448,81 @@ void Widget::onBrowseDataFile() {
 
 // ─── Serial data ───
 
+static inline int hexVal(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return -1;
+}
+
+QByteArray Widget::convertHexTextToBinary(const QByteArray &hexText) {
+    QByteArray result;
+    result.reserve(hexText.size() / 2);
+    const char *p = hexText.constData();
+    int len = hexText.size();
+
+    for (int i = 0; i < len; ++i) {
+        char c = p[i];
+
+        // Skip separators
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',' || c == ';') {
+            // Separator: flush pending nibble as a single-digit byte
+            if (m_pendingNibble >= 0) {
+                result.append(static_cast<char>(m_pendingNibble));
+                m_pendingNibble = -1;
+            }
+            m_hexSkipNextX = false;
+            continue;
+        }
+
+        // Handle "0x" prefix
+        if (m_hexSkipNextX) {
+            m_hexSkipNextX = false;
+            if (c == 'x' || c == 'X')
+                continue;
+            // Not 'x', so '0' was a real hex digit
+            m_pendingNibble = 0;
+        }
+
+        int val = hexVal(c);
+        if (val < 0) {
+            // Non-hex char: flush pending and skip
+            if (m_pendingNibble >= 0) {
+                result.append(static_cast<char>(m_pendingNibble));
+                m_pendingNibble = -1;
+            }
+            continue;
+        }
+
+        // Check for "0x" prefix: if this is '0' and no pending nibble
+        if (val == 0 && m_pendingNibble < 0 && i + 1 < len &&
+            (p[i + 1] == 'x' || p[i + 1] == 'X')) {
+            m_hexSkipNextX = true;
+            continue;
+        }
+
+        if (m_pendingNibble < 0) {
+            m_pendingNibble = val;
+        } else {
+            result.append(static_cast<char>((m_pendingNibble << 4) | val));
+            m_pendingNibble = -1;
+        }
+    }
+
+    return result;
+}
+
 void Widget::onSerialDataReceived(const QByteArray &data) {
     if (m_streamingActive && !m_streamParser->configs().isEmpty()) {
-        m_streamParser->feedData(data);
+        // Check if HEX text mode is enabled
+        bool hexMode = ui->chkHexMode->isChecked();
+        if (hexMode) {
+            QByteArray binary = convertHexTextToBinary(data);
+            if (!binary.isEmpty())
+                m_streamParser->feedData(binary);
+        } else {
+            m_streamParser->feedData(data);
+        }
     } else {
         m_rawData.append(data);
         updateParseButton();

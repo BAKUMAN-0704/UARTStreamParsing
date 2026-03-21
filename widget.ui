@@ -306,8 +306,10 @@
            </widget>
           </item>
           <item row="2" column="4">
-           <widget class="QCheckBox" name="chkStreamParse">
-            <property name="text"><string>实时解析</string></property>
+           <widget class="QCheckBox" name="chkHexMode">
+            <property name="text"><string>HEX文本模式</string></property>
+            <property name="toolTip"><string>串口接收的是HEX文本(如"55 AA 1A")而非原始二进制</string></property>
+            <property name="checked"><bool>true</bool></property>
            </widget>
           </item>
          </layout>
