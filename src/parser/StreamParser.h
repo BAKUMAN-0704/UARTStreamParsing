@@ -61,6 +61,10 @@ private:
     void performAutoSave();
     QStringList saveFramesToDir(const QMap<QString, QVector<ParsedFrame>> &frames);
     void emitThrottledProgress();
+    int findEarliestHeaderPos(const QByteArray &data, int offset) const;
+    bool selectMatchingConfig(const QByteArray &data, int headerPos, int &configIdx,
+                              int &frameSize, ParsedFrame &frame,
+                              bool &needMoreData);
 
     static int findHeaderIn(const QByteArray &data, int offset,
                             const QByteArray &headerBytes);

@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QtEndian>
 #include <algorithm>
+#include <limits>
 #include <cstring>
 
 StreamParser::StreamParser(QObject *parent) : QObject(parent) {}
@@ -117,6 +118,61 @@ int StreamParser::computeFrameSize(const FrameConfig &config, const QByteArray &
     return config.totalFrameSize();
 }
 
+int StreamParser::findEarliestHeaderPos(const QByteArray &data, int offset) const {
+    int bestPos = std::numeric_limits<int>::max();
+
+    for (int i = 0; i < m_configs.size(); ++i) {
+        int pos = findHeaderIn(data, offset, m_cachedHeaders[i]);
+        if (pos >= 0 && pos < bestPos)
+            bestPos = pos;
+    }
+
+    return bestPos == std::numeric_limits<int>::max() ? -1 : bestPos;
+}
+
+bool StreamParser::selectMatchingConfig(const QByteArray &data, int headerPos,
+                                        int &configIdx, int &frameSize,
+                                        ParsedFrame &frame, bool &needMoreData) {
+    configIdx = -1;
+    frameSize = 0;
+    needMoreData = false;
+
+    bool found = false;
+    bool foundCrcValid = false;
+
+    for (int i = 0; i < m_configs.size(); ++i) {
+        const QByteArray &header = m_cachedHeaders[i];
+        if (header.isEmpty())
+            continue;
+        if (headerPos + header.size() > data.size())
+            continue;
+        if (std::memcmp(data.constData() + headerPos, header.constData(), header.size()) != 0)
+            continue;
+
+        int candidateSize = computeFrameSize(m_configs[i].config, data, headerPos);
+        if (candidateSize <= 0)
+            continue;
+        if (headerPos + candidateSize > data.size()) {
+            needMoreData = true;
+            continue;
+        }
+
+        ParsedFrame candidateFrame;
+        if (!m_parsers[i].parseSingleFrame(data, headerPos, candidateSize, candidateFrame))
+            continue;
+
+        if (!found || (!foundCrcValid && candidateFrame.crcValid)) {
+            found = true;
+            foundCrcValid = candidateFrame.crcValid;
+            configIdx = i;
+            frameSize = candidateSize;
+            frame = std::move(candidateFrame);
+        }
+    }
+
+    return found;
+}
+
 // ─── Streaming mode ───
 
 void StreamParser::feedData(const QByteArray &chunk) {
@@ -155,19 +211,8 @@ void StreamParser::tryParseBuffer() {
     int offset = 0;
 
     while (offset < m_buffer.size()) {
-        // Find earliest header match across all configs
-        int bestPos = INT_MAX;
-        int bestIdx = -1;
-
-        for (int i = 0; i < m_configs.size(); ++i) {
-            int pos = findHeaderIn(m_buffer, offset, m_cachedHeaders[i]);
-            if (pos >= 0 && pos < bestPos) {
-                bestPos = pos;
-                bestIdx = i;
-            }
-        }
-
-        if (bestIdx < 0) {
+        int bestPos = findEarliestHeaderPos(m_buffer, offset);
+        if (bestPos < 0) {
             // No header found — keep tail bytes for next chunk
             int keep = std::min(m_maxHeaderSize - 1, m_buffer.size() - offset);
             if (keep > 0)
@@ -177,16 +222,12 @@ void StreamParser::tryParseBuffer() {
             return;
         }
 
-        // Compute frame size
-        int frameSize = computeFrameSize(m_configs[bestIdx].config, m_buffer, bestPos);
-        if (bestPos + frameSize > m_buffer.size())
-            break; // Not enough data yet
-
-        // Parse one frame (zero-copy)
+        int bestIdx = -1;
+        int frameSize = 0;
         ParsedFrame frame;
-        bool ok = m_parsers[bestIdx].parseSingleFrame(m_buffer, bestPos, frameSize, frame);
+        bool needMoreData = false;
 
-        if (ok) {
+        if (selectMatchingConfig(m_buffer, bestPos, bestIdx, frameSize, frame, needMoreData)) {
             const QString &configName = m_configs[bestIdx].name;
             frame.configName = configName;
             frame.frameIndex = ++m_frameCounters[configName];
@@ -207,9 +248,11 @@ void StreamParser::tryParseBuffer() {
             }
 
             offset = bestPos + frameSize;
+        } else if (needMoreData) {
+            break;
         } else {
-            // Invalid frame at header position, skip past header
-            offset = bestPos + m_configs[bestIdx].config.headerSize();
+            // False positive header, move one byte forward and rescan.
+            offset = bestPos + 1;
         }
     }
 
@@ -284,19 +327,11 @@ QMap<QString, QVector<ParsedFrame>> StreamParser::parseBatch(const QByteArray &r
     for (auto &p : m_parsers)
         p.setLightweight(true);
 
-    // Cache header bytes to avoid repeated allocation
-    QVector<QByteArray> cachedHeaders;
-    cachedHeaders.reserve(m_configs.size());
-    for (const auto &c : m_configs)
-        cachedHeaders.append(c.config.headerBytes());
-
     // Check if auto-save is configured (has end frame + save dir)
     bool hasEndFrame = false;
-    QString endFrameName;
     for (const auto &c : m_configs) {
         if (c.isEndFrame) {
             hasEndFrame = true;
-            endFrameName = c.name;
             break;
         }
     }
@@ -314,30 +349,16 @@ QMap<QString, QVector<ParsedFrame>> StreamParser::parseBatch(const QByteArray &r
     int lastPct = -1;
 
     while (offset < totalSize) {
-        // Find earliest header
-        int bestPos = INT_MAX;
+        int bestPos = findEarliestHeaderPos(rawData, offset);
+        if (bestPos < 0)
+            break;
+
         int bestIdx = -1;
-
-        for (int i = 0; i < m_configs.size(); ++i) {
-            int pos = findHeaderIn(rawData, offset, cachedHeaders[i]);
-            if (pos >= 0 && pos < bestPos) {
-                bestPos = pos;
-                bestIdx = i;
-            }
-        }
-
-        if (bestIdx < 0)
-            break;
-
-        int frameSize = computeFrameSize(m_configs[bestIdx].config, rawData, bestPos);
-        if (bestPos + frameSize > totalSize)
-            break;
-
-        // Zero-copy parse
+        int frameSize = 0;
         ParsedFrame frame;
-        bool ok = m_parsers[bestIdx].parseSingleFrame(rawData, bestPos, frameSize, frame);
+        bool needMoreData = false;
 
-        if (ok) {
+        if (selectMatchingConfig(rawData, bestPos, bestIdx, frameSize, frame, needMoreData)) {
             const QString &name = m_configs[bestIdx].name;
             frame.configName = name;
             frame.frameIndex = ++counters[name];
@@ -361,8 +382,10 @@ QMap<QString, QVector<ParsedFrame>> StreamParser::parseBatch(const QByteArray &r
                 sessionFrames[name].append(std::move(frame));
 
             offset = bestPos + frameSize;
+        } else if (needMoreData) {
+            break;
         } else {
-            offset = bestPos + m_configs[bestIdx].config.headerSize();
+            offset = bestPos + 1;
         }
 
         if (progressCb) {
