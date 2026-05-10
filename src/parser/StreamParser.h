@@ -70,6 +70,8 @@ private:
                             const QByteArray &headerBytes);
     static int computeFrameSize(const FrameConfig &config, const QByteArray &data,
                                 int offset);
+    static bool configHasActiveCrc(const FrameConfig &config);
+    static int fixedSpecificityScore(const FrameConfig &config);
 
     QVector<ConfigEntry> m_configs;
     QVector<FrameParser> m_parsers;

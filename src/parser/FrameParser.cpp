@@ -120,9 +120,7 @@ bool FrameParser::tryParseFrame(const QByteArray &data, int offset,
 
     QByteArray frameData = data.mid(offset, totalSize);
 
-    if (!validateTail(frameData))
-        return false;
-    if (!validatePadding(frameData))
+    if (!validateFixedFields(frameData))
         return false;
 
     frame.crcValid = validateCrc(frameData);
@@ -166,27 +164,20 @@ bool FrameParser::tryParseFrame(const QByteArray &data, int offset,
     return true;
 }
 
-bool FrameParser::validateTail(const QByteArray &frameData) {
-    QByteArray tail = m_config.tailBytes();
-    if (tail.isEmpty())
-        return true;
-    int tailSize = tail.size();
-    if (frameData.size() < tailSize)
-        return false;
-    return std::memcmp(frameData.constData() + frameData.size() - tailSize,
-                       tail.constData(), tailSize) == 0;
-}
-
-bool FrameParser::validatePadding(const QByteArray &frameData) {
+bool FrameParser::validateFixedFields(const QByteArray &frameData) {
     int offset = 0;
     for (const auto &f : m_config.fields) {
-        if (f.fieldType == FieldType::PADDING && !f.fixedValue.isEmpty()) {
-            if (offset + f.byteCount > frameData.size())
+        if (offset + f.byteCount > frameData.size())
+            return false;
+
+        if (!f.fixedValue.isEmpty()) {
+            if (f.fixedValue.size() > f.byteCount)
                 return false;
             if (std::memcmp(frameData.constData() + offset,
-                            f.fixedValue.constData(), f.byteCount) != 0)
+                            f.fixedValue.constData(), f.fixedValue.size()) != 0)
                 return false;
         }
+
         offset += f.byteCount;
     }
     return true;
@@ -296,9 +287,7 @@ bool FrameParser::parseSingleFrame(const QByteArray &data, int offset, int frame
     // Validate using a view of the data (no copy)
     QByteArray frameData = QByteArray::fromRawData(data.constData() + offset, frameSize);
 
-    if (!validateTail(frameData))
-        return false;
-    if (!validatePadding(frameData))
+    if (!validateFixedFields(frameData))
         return false;
 
     frame.crcValid = validateCrc(frameData);

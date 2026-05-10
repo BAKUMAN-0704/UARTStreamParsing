@@ -26,7 +26,6 @@ Widget::Widget(QWidget *parent) : QWidget(parent), ui(new Ui::Widget) {
 
     // Config management
     connect(ui->btnBrowseConfig, &QPushButton::clicked, this, &Widget::onBrowseConfig);
-    connect(ui->btnAddConfig, &QPushButton::clicked, this, &Widget::onAddConfig);
     connect(ui->btnRemoveConfig, &QPushButton::clicked, this, &Widget::onRemoveConfig);
     connect(ui->listConfigs, &QListWidget::currentRowChanged, this,
             &Widget::onConfigSelectionChanged);
@@ -237,41 +236,6 @@ void Widget::onBrowseConfig() {
 
     if (added > 0)
         setStatus(QString("已添加 %1 个配置").arg(added));
-}
-
-void Widget::onAddConfig() {
-    QString path = ui->editConfigPath->text();
-    if (path.isEmpty()) {
-        // No path in text field — trigger browse dialog instead
-        onBrowseConfig();
-        return;
-    }
-
-    QString name = QFileInfo(path).baseName();
-
-    for (const auto &c : m_streamParser->configs()) {
-        if (c.name == name) {
-            QMessageBox::warning(this, "提示", QString("配置 \"%1\" 已存在").arg(name));
-            return;
-        }
-    }
-
-    QString errorMsg;
-    FrameConfig config = ConfigParser::loadConfig(path, &errorMsg);
-    if (!errorMsg.isEmpty()) {
-        QMessageBox::critical(this, "加载失败", errorMsg);
-        return;
-    }
-
-    ConfigEntry entry{name, path, config, false};
-    m_streamParser->addConfig(entry);
-    ui->listConfigs->addItem(name);
-    ui->editConfigPath->clear();
-    updateParseButton();
-    setStatus(QString("已添加配置: %1 (%2字段, %3字节/帧)")
-                  .arg(name)
-                  .arg(config.fields.size())
-                  .arg(config.totalFrameSize()));
 }
 
 void Widget::onRemoveConfig() {
@@ -806,7 +770,6 @@ void Widget::setParsingUi(bool parsing) {
     ui->progressBar->setValue(0);
     ui->btnParse->setEnabled(!parsing);
     ui->btnExport->setEnabled(!parsing);
-    ui->btnAddConfig->setEnabled(!parsing);
     ui->btnBrowseConfig->setEnabled(!parsing);
     ui->btnBrowseDataFile->setEnabled(!parsing);
 }

@@ -118,6 +118,23 @@ int StreamParser::computeFrameSize(const FrameConfig &config, const QByteArray &
     return config.totalFrameSize();
 }
 
+bool StreamParser::configHasActiveCrc(const FrameConfig &config) {
+    for (const auto &f : config.fields) {
+        if (f.fieldType == FieldType::CRC && f.crcAlgorithm != CrcAlgorithm::NONE)
+            return true;
+    }
+    return false;
+}
+
+int StreamParser::fixedSpecificityScore(const FrameConfig &config) {
+    int score = 0;
+    for (const auto &f : config.fields) {
+        if (f.fieldType != FieldType::HEADER)
+            score += f.fixedValue.size();
+    }
+    return score;
+}
+
 int StreamParser::findEarliestHeaderPos(const QByteArray &data, int offset) const {
     int bestPos = std::numeric_limits<int>::max();
 
@@ -138,7 +155,10 @@ bool StreamParser::selectMatchingConfig(const QByteArray &data, int headerPos,
     needMoreData = false;
 
     bool found = false;
-    bool foundCrcValid = false;
+    int bestCrcScore = -1;
+    int bestSpecificity = -1;
+    int bestHeaderSize = -1;
+    int bestFixedBytes = -1;
 
     for (int i = 0; i < m_configs.size(); ++i) {
         const QByteArray &header = m_cachedHeaders[i];
@@ -161,9 +181,26 @@ bool StreamParser::selectMatchingConfig(const QByteArray &data, int headerPos,
         if (!m_parsers[i].parseSingleFrame(data, headerPos, candidateSize, candidateFrame))
             continue;
 
-        if (!found || (!foundCrcValid && candidateFrame.crcValid)) {
+        const FrameConfig &candidateConfig = m_configs[i].config;
+        bool hasActiveCrc = configHasActiveCrc(candidateConfig);
+        int crcScore = hasActiveCrc ? (candidateFrame.crcValid ? 2 : 0) : 1;
+        int specificity = fixedSpecificityScore(candidateConfig);
+        int headerSize = header.size();
+        int fixedBytes = specificity + headerSize;
+
+        bool better = !found || crcScore > bestCrcScore
+                      || (crcScore == bestCrcScore && specificity > bestSpecificity)
+                      || (crcScore == bestCrcScore && specificity == bestSpecificity
+                          && headerSize > bestHeaderSize)
+                      || (crcScore == bestCrcScore && specificity == bestSpecificity
+                          && headerSize == bestHeaderSize && fixedBytes > bestFixedBytes);
+
+        if (better) {
             found = true;
-            foundCrcValid = candidateFrame.crcValid;
+            bestCrcScore = crcScore;
+            bestSpecificity = specificity;
+            bestHeaderSize = headerSize;
+            bestFixedBytes = fixedBytes;
             configIdx = i;
             frameSize = candidateSize;
             frame = std::move(candidateFrame);

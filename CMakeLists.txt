@@ -9,8 +9,8 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets SerialPort)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets SerialPort)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets SerialPort Test)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets SerialPort Test)
 
 # Add QXlsx as subdirectory
 add_subdirectory(third_party/QXlsx)
@@ -65,6 +65,39 @@ target_link_libraries(UARTStreamParsing PRIVATE
     Qt${QT_VERSION_MAJOR}::SerialPort
     QXlsx::QXlsx
 )
+
+enable_testing()
+
+add_executable(UARTStreamParsingTests
+    tests/tst_streamparser.cpp
+    src/config/FrameFieldDef.h
+    src/parser/FrameParser.h
+    src/parser/FrameParser.cpp
+    src/parser/CrcCalculator.h
+    src/parser/CrcCalculator.cpp
+    src/parser/StreamParser.h
+    src/parser/StreamParser.cpp
+    src/export/DataExporter.h
+    src/export/DataExporter.cpp
+)
+
+target_include_directories(UARTStreamParsingTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(UARTStreamParsingTests PRIVATE
+    Qt${QT_VERSION_MAJOR}::Core
+    Qt${QT_VERSION_MAJOR}::Test
+)
+
+add_test(NAME UARTStreamParsingTests COMMAND UARTStreamParsingTests)
+
+if(WIN32)
+    get_target_property(QT_QMAKE_EXECUTABLE Qt${QT_VERSION_MAJOR}::qmake IMPORTED_LOCATION)
+    get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
+    get_filename_component(CXX_COMPILER_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    set_tests_properties(UARTStreamParsingTests PROPERTIES
+        ENVIRONMENT "PATH=${QT_BIN_DIR}\;${CXX_COMPILER_BIN_DIR}\;$ENV{PATH}"
+    )
+endif()
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 if(${QT_VERSION} VERSION_LESS 6.1.0)

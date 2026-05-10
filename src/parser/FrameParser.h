@@ -29,8 +29,7 @@ private:
                           int byteCount, Endianness endian);
     int findHeader(const QByteArray &data, int offset);
     bool validateCrc(const QByteArray &frameData);
-    bool validateTail(const QByteArray &frameData);
-    bool validatePadding(const QByteArray &frameData);
+    bool validateFixedFields(const QByteArray &frameData);
     int readLengthField(const QByteArray &frameData);
     static QString toHexString(const QByteArray &data);
 

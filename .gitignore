@@ -43,6 +43,7 @@ CMakeLists.txt.user*
 
 # Local tooling state
 /.claude/
+/CLAUDE.md
 
 # xemacs temporary files
 *.flc

@@ -59,20 +59,10 @@
         <item>
          <widget class="QPushButton" name="btnBrowseConfig">
           <property name="text">
-           <string>浏览</string>
+           <string>选择并添加配置</string>
           </property>
           <property name="fixedWidth" stdset="0">
-           <number>60</number>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="btnAddConfig">
-          <property name="text">
-           <string>添加</string>
-          </property>
-          <property name="fixedWidth" stdset="0">
-           <number>60</number>
+           <number>120</number>
           </property>
          </widget>
         </item>

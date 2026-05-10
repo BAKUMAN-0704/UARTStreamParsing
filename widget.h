@@ -25,7 +25,6 @@ public:
 
 private Q_SLOTS:
     void onBrowseConfig();
-    void onAddConfig();
     void onRemoveConfig();
     void onConfigSelectionChanged();
     void onEndFrameToggled(bool checked);
