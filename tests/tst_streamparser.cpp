@@ -1,6 +1,13 @@
 #include "src/parser/StreamParser.h"
+#include "src/datasource/FileDataSource.h"
+#include "src/export/DataExporter.h"
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QTemporaryDir>
 #include <QtTest/QtTest>
+#include <algorithm>
 
 class StreamParserTest : public QObject {
     Q_OBJECT
@@ -8,6 +15,9 @@ class StreamParserTest : public QObject {
 private slots:
     void parsesSharedHeaderFormatsRegardlessOfOrder();
     void specificConfigBeatsGenericFirstConfig();
+    void manualMultiConfigExportSplitsByEndFrameOffsets();
+    void streamingAutoSaveSplitsAcrossChunkBoundaries();
+    void generatedFileStreamingMatchesBatchAutoSave();
 
 private:
     static QByteArray bytes(std::initializer_list<unsigned char> values);
@@ -15,6 +25,10 @@ private:
     static QByteArray makeFrame(unsigned char typeByte, unsigned char payload);
     static QMap<QString, int> parseCounts(const QVector<ConfigEntry> &configs,
                                           const QByteArray &stream);
+    static int exportedDataRowCount(const QString &filePath);
+    static QString findGeneratedStreamPath();
+    static QVector<ConfigEntry> generatedConfigs();
+    static QMap<QString, QVector<int>> exportedRowsByConfig(const QStringList &files);
 };
 
 QByteArray StreamParserTest::bytes(std::initializer_list<unsigned char> values) {
@@ -83,6 +97,160 @@ QMap<QString, int> StreamParserTest::parseCounts(const QVector<ConfigEntry> &con
     return counts;
 }
 
+int StreamParserTest::exportedDataRowCount(const QString &filePath) {
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return -1;
+
+    int rows = 0;
+    const auto lines = file.readAll().split('\n');
+    for (int i = 1; i < lines.size(); ++i) {
+        if (!lines[i].trimmed().isEmpty())
+            ++rows;
+    }
+    return rows;
+}
+
+QString StreamParserTest::findGeneratedStreamPath() {
+    const QStringList candidates = {
+        "test/test_stream_mixed.txt",
+        "../test/test_stream_mixed.txt",
+    };
+    for (const QString &path : candidates) {
+        if (QFileInfo::exists(path))
+            return path;
+    }
+    return QString();
+}
+
+QVector<ConfigEntry> StreamParserTest::generatedConfigs() {
+    auto fixedField = [](int index, const QString &name, FieldType type, int byteCount,
+                         QByteArray fixedValue = {}) {
+        FrameFieldDef field;
+        field.index = index;
+        field.name = name;
+        field.fieldType = type;
+        field.byteCount = byteCount;
+        field.fixedValue = fixedValue;
+        return field;
+    };
+    auto dataField = [](int index, const QString &name, DataType type, int byteCount,
+                        Endianness endianness = Endianness::LITTLE) {
+        FrameFieldDef field;
+        field.index = index;
+        field.name = name;
+        field.fieldType = FieldType::DATA;
+        field.dataType = type;
+        field.byteCount = byteCount;
+        field.endianness = endianness;
+        return field;
+    };
+    auto lengthField = [](int index, const QString &name, int byteCount, Endianness endianness,
+                          LengthMeaning meaning) {
+        FrameFieldDef field;
+        field.index = index;
+        field.name = name;
+        field.fieldType = FieldType::LENGTH;
+        field.dataType = byteCount == 2 ? DataType::UINT16 : DataType::UINT32;
+        field.byteCount = byteCount;
+        field.endianness = endianness;
+        field.lengthMeaning = meaning;
+        return field;
+    };
+    auto crcField = [](int index, int byteCount, Endianness endianness,
+                       CrcAlgorithm algorithm, int startField, int endField) {
+        FrameFieldDef field;
+        field.index = index;
+        field.name = "CRC";
+        field.fieldType = FieldType::CRC;
+        field.byteCount = byteCount;
+        field.endianness = endianness;
+        field.crcAlgorithm = algorithm;
+        field.crcStartField = startField;
+        field.crcEndField = endField;
+        return field;
+    };
+
+    FrameConfig frame1;
+    frame1.fields = {
+        fixedField(1, "帧头", FieldType::HEADER, 2, bytes({0x51, 0xFA})),
+        fixedField(2, "帧类型", FieldType::PADDING, 1, bytes({0x01})),
+        dataField(3, "序号", DataType::UINT32, 4, Endianness::BIG),
+        dataField(4, "温度", DataType::INT16, 2, Endianness::BIG),
+        dataField(5, "电压", DataType::UINT16, 2, Endianness::LITTLE),
+        crcField(6, 2, Endianness::LITTLE, CrcAlgorithm::CRC16_MODBUS, 2, 5),
+        fixedField(7, "帧尾", FieldType::TAIL, 2, bytes({0x5A, 0x78})),
+    };
+
+    FrameConfig frame2;
+    frame2.fields = {
+        fixedField(1, "帧头", FieldType::HEADER, 2, bytes({0x51, 0xFA})),
+        fixedField(2, "帧类型", FieldType::PADDING, 1, bytes({0x02})),
+        lengthField(3, "帧长度", 2, Endianness::BIG, LengthMeaning::TOTAL),
+        dataField(4, "通道", DataType::UINT8, 1),
+        dataField(5, "采样序号", DataType::UINT32, 4, Endianness::BIG),
+        dataField(6, "加速度X", DataType::FLOAT, 4, Endianness::LITTLE),
+        dataField(7, "状态", DataType::UINT8, 1),
+        crcField(8, 1, Endianness::LITTLE, CrcAlgorithm::CRC8, 2, 7),
+        fixedField(9, "帧尾", FieldType::TAIL, 2, bytes({0x5A, 0x78})),
+    };
+
+    FrameConfig frame3;
+    frame3.fields = {
+        fixedField(1, "帧头", FieldType::HEADER, 2, bytes({0x51, 0xFA})),
+        fixedField(2, "帧类型", FieldType::PADDING, 1, bytes({0x03})),
+        lengthField(3, "数据长度", 2, Endianness::LITTLE, LengthMeaning::PAYLOAD),
+        dataField(4, "压力", DataType::UINT16, 2, Endianness::LITTLE),
+        dataField(5, "电流", DataType::UINT16, 2, Endianness::LITTLE),
+        dataField(6, "标志", DataType::UINT8, 1),
+        fixedField(7, "填充", FieldType::PADDING, 1, bytes({0x00})),
+        crcField(8, 2, Endianness::BIG, CrcAlgorithm::CRC16_CCITT, 2, 7),
+        fixedField(9, "帧尾", FieldType::TAIL, 2, bytes({0x5A, 0x78})),
+    };
+
+    FrameConfig endFrame;
+    endFrame.fields = {
+        fixedField(1, "帧头", FieldType::HEADER, 2, bytes({0x51, 0xFA})),
+        fixedField(2, "帧类型", FieldType::PADDING, 1, bytes({0x04})),
+        dataField(3, "会话序号", DataType::UINT16, 2, Endianness::BIG),
+        dataField(4, "结束原因", DataType::UINT8, 1),
+        dataField(5, "frame2计数", DataType::UINT32, 4, Endianness::BIG),
+        crcField(6, 2, Endianness::LITTLE, CrcAlgorithm::CRC16_MODBUS, 2, 5),
+        fixedField(7, "帧尾", FieldType::TAIL, 2, bytes({0x5A, 0x78})),
+    };
+
+    return {
+        {"test_config", {}, frame1, false},
+        {"test_config_with_length", {}, frame2, false},
+        {"test_config_multi_padding", {}, frame3, false},
+        {"test_config_endframe", {}, endFrame, true},
+    };
+}
+
+QMap<QString, QVector<int>> StreamParserTest::exportedRowsByConfig(const QStringList &files) {
+    QMap<QString, QVector<int>> result;
+    const QStringList names = {
+        "test_config_with_length",
+        "test_config_multi_padding",
+        "test_config_endframe",
+        "test_config",
+    };
+
+    for (const QString &filePath : files) {
+        const QString fileName = QFileInfo(filePath).fileName();
+        for (const QString &name : names) {
+            if (fileName.startsWith(name + "_")) {
+                result[name].append(exportedDataRowCount(filePath));
+                break;
+            }
+        }
+    }
+
+    for (auto it = result.begin(); it != result.end(); ++it)
+        std::sort(it.value().begin(), it.value().end());
+    return result;
+}
+
 void StreamParserTest::parsesSharedHeaderFormatsRegardlessOfOrder() {
     QVector<ConfigEntry> forward = {
         {"type1", {}, makeConfig(0x01, true, FieldType::DATA), false},
@@ -128,6 +296,124 @@ void StreamParserTest::specificConfigBeatsGenericFirstConfig() {
     auto counts = parseCounts(configs, stream);
     QCOMPARE(counts.value("generic"), 0);
     QCOMPARE(counts.value("type2"), 1);
+}
+
+void StreamParserTest::manualMultiConfigExportSplitsByEndFrameOffsets() {
+    QVector<ConfigEntry> configs = {
+        {"data", {}, makeConfig(0x01, true, FieldType::DATA), false},
+        {"end", {}, makeConfig(0x04, true, FieldType::DATA), true},
+    };
+
+    QByteArray stream;
+    stream.append(makeFrame(0x01, 0x10));
+    stream.append(makeFrame(0x01, 0x11));
+    stream.append(makeFrame(0x04, 0x40));
+    stream.append(makeFrame(0x01, 0x12));
+    stream.append(makeFrame(0x04, 0x41));
+
+    StreamParser parser;
+    for (const auto &config : configs)
+        parser.addConfig(config);
+    const auto results = parser.parseBatch(stream);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QMap<QString, FrameConfig> configMap;
+    for (const auto &config : configs)
+        configMap[config.name] = config.config;
+
+    QString errorMsg;
+    const QStringList saved = DataExporter::autoSaveMultiConfig(
+        dir.path(), results, configMap, "end", &errorMsg);
+
+    QVERIFY2(errorMsg.isEmpty(), qPrintable(errorMsg));
+    QCOMPARE(saved.size(), 2);
+    QCOMPARE(exportedDataRowCount(saved[0]), 2);
+    QCOMPARE(exportedDataRowCount(saved[1]), 1);
+}
+
+void StreamParserTest::streamingAutoSaveSplitsAcrossChunkBoundaries() {
+    QVector<ConfigEntry> configs = {
+        {"data", {}, makeConfig(0x01, true, FieldType::DATA), false},
+        {"end", {}, makeConfig(0x04, true, FieldType::DATA), true},
+    };
+
+    QByteArray stream;
+    stream.append(makeFrame(0x01, 0x10));
+    stream.append(makeFrame(0x01, 0x11));
+    stream.append(makeFrame(0x04, 0x40));
+    stream.append(makeFrame(0x01, 0x12));
+    stream.append(makeFrame(0x04, 0x41));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    StreamParser parser;
+    for (const auto &config : configs)
+        parser.addConfig(config);
+    parser.setAutoSaveDir(dir.path());
+
+    QStringList saved;
+    connect(&parser, &StreamParser::autoSaveCompleted, this,
+            [&saved](const QStringList &files) { saved.append(files); });
+
+    for (int i = 0; i < stream.size(); ++i)
+        parser.feedData(stream.mid(i, 1));
+
+    QCOMPARE(saved.size(), 2);
+    QCOMPARE(exportedDataRowCount(saved[0]), 2);
+    QCOMPARE(exportedDataRowCount(saved[1]), 1);
+}
+
+void StreamParserTest::generatedFileStreamingMatchesBatchAutoSave() {
+    const QString streamPath = findGeneratedStreamPath();
+    QVERIFY2(!streamPath.isEmpty(), "test/test_stream_mixed.txt was not found");
+
+    QString errorMsg;
+    const QByteArray rawData = FileDataSource::readHexFile(streamPath, &errorMsg);
+    QVERIFY2(errorMsg.isEmpty(), qPrintable(errorMsg));
+    QVERIFY(!rawData.isEmpty());
+
+    const QVector<ConfigEntry> configs = generatedConfigs();
+
+    QTemporaryDir batchDir;
+    QVERIFY(batchDir.isValid());
+    StreamParser batchParser;
+    for (const auto &config : configs)
+        batchParser.addConfig(config);
+    batchParser.setAutoSaveDir(batchDir.path());
+
+    QStringList batchSaved;
+    connect(&batchParser, &StreamParser::autoSaveCompleted, this,
+            [&batchSaved](const QStringList &files) { batchSaved.append(files); });
+    const auto batchResults = batchParser.parseBatch(rawData);
+
+    QCOMPARE(batchResults.value("test_config").size(), 5064);
+    QCOMPARE(batchResults.value("test_config_with_length").size(), 100000);
+    QCOMPARE(batchResults.value("test_config_multi_padding").size(), 20000);
+    QCOMPARE(batchResults.value("test_config_endframe").size(), 10);
+
+    QTemporaryDir streamDir;
+    QVERIFY(streamDir.isValid());
+    StreamParser streamParser;
+    for (const auto &config : configs)
+        streamParser.addConfig(config);
+    streamParser.setAutoSaveDir(streamDir.path());
+
+    QStringList streamSaved;
+    connect(&streamParser, &StreamParser::autoSaveCompleted, this,
+            [&streamSaved](const QStringList &files) { streamSaved.append(files); });
+
+    for (int offset = 0; offset < rawData.size();) {
+        const int chunkSize = 1 + (offset % 257);
+        streamParser.feedData(rawData.mid(offset, chunkSize));
+        offset += chunkSize;
+    }
+
+    QCOMPARE(batchSaved.size(), 30);
+    QCOMPARE(streamSaved.size(), batchSaved.size());
+    QCOMPARE(exportedRowsByConfig(streamSaved), exportedRowsByConfig(batchSaved));
 }
 
 QTEST_MAIN(StreamParserTest)

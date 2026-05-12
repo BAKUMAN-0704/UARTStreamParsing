@@ -61,7 +61,8 @@ private:
     // HEX text mode for serial: convert "55 AA" text to binary
     QByteArray convertHexTextToBinary(const QByteArray &hexText);
     int m_pendingNibble = -1; // carry-over half-byte between chunks
-    bool m_hexSkipNextX = false; // skip 'x'/'X' after '0' in "0x" prefix
+    bool m_hexSkipNextX = false; // pending leading '0' that may be a "0x" prefix
+    bool m_hexInToken = false;
 
     // Worker thread for file parsing
     QThread *m_workerThread = nullptr;

@@ -79,6 +79,8 @@ add_executable(UARTStreamParsingTests
     src/parser/StreamParser.cpp
     src/export/DataExporter.h
     src/export/DataExporter.cpp
+    src/datasource/FileDataSource.h
+    src/datasource/FileDataSource.cpp
 )
 
 target_include_directories(UARTStreamParsingTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

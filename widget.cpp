@@ -367,6 +367,7 @@ void Widget::onOpenPort() {
         // Reset HEX text conversion state
         m_pendingNibble = -1;
         m_hexSkipNextX = false;
+        m_hexInToken = false;
 
         if (m_streamingActive)
             setStatus("实时解析已启动 - " + config.portName);
@@ -377,6 +378,21 @@ void Widget::onOpenPort() {
 }
 
 void Widget::onClosePort() {
+    if (m_streamingActive && ui->chkHexMode->isChecked()) {
+        QByteArray trailing;
+        if (m_hexSkipNextX)
+            trailing.append(static_cast<char>(0));
+        else if (m_pendingNibble >= 0)
+            trailing.append(static_cast<char>(m_pendingNibble));
+
+        m_pendingNibble = -1;
+        m_hexSkipNextX = false;
+        m_hexInToken = false;
+
+        if (!trailing.isEmpty())
+            m_streamParser->feedData(trailing);
+    }
+
     // Save any remaining accumulated frames before closing
     if (m_streamingActive && !m_streamParser->autoSaveDir().isEmpty()) {
         const auto &remaining = m_streamParser->accumulatedFrames();
@@ -422,46 +438,43 @@ static inline int hexVal(char c) {
 QByteArray Widget::convertHexTextToBinary(const QByteArray &hexText) {
     QByteArray result;
     result.reserve(hexText.size() / 2);
-    const char *p = hexText.constData();
-    int len = hexText.size();
 
-    for (int i = 0; i < len; ++i) {
-        char c = p[i];
-
-        // Skip separators
-        if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',' || c == ';') {
-            // Separator: flush pending nibble as a single-digit byte
-            if (m_pendingNibble >= 0) {
-                result.append(static_cast<char>(m_pendingNibble));
-                m_pendingNibble = -1;
-            }
+    auto flushPending = [&]() {
+        if (m_hexSkipNextX) {
+            result.append(static_cast<char>(0));
             m_hexSkipNextX = false;
+        }
+        if (m_pendingNibble >= 0) {
+            result.append(static_cast<char>(m_pendingNibble));
+            m_pendingNibble = -1;
+        }
+        m_hexInToken = false;
+    };
+
+    for (char c : hexText) {
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',' || c == ';') {
+            flushPending();
             continue;
         }
 
-        // Handle "0x" prefix
         if (m_hexSkipNextX) {
             m_hexSkipNextX = false;
-            if (c == 'x' || c == 'X')
+            if (c == 'x' || c == 'X') {
+                m_hexInToken = true;
                 continue;
-            // Not 'x', so '0' was a real hex digit
+            }
             m_pendingNibble = 0;
         }
 
         int val = hexVal(c);
         if (val < 0) {
-            // Non-hex char: flush pending and skip
-            if (m_pendingNibble >= 0) {
-                result.append(static_cast<char>(m_pendingNibble));
-                m_pendingNibble = -1;
-            }
+            flushPending();
             continue;
         }
 
-        // Check for "0x" prefix: if this is '0' and no pending nibble
-        if (val == 0 && m_pendingNibble < 0 && i + 1 < len &&
-            (p[i + 1] == 'x' || p[i + 1] == 'X')) {
+        if (!m_hexInToken && val == 0 && m_pendingNibble < 0) {
             m_hexSkipNextX = true;
+            m_hexInToken = true;
             continue;
         }
 
@@ -471,6 +484,7 @@ QByteArray Widget::convertHexTextToBinary(const QByteArray &hexText) {
             result.append(static_cast<char>((m_pendingNibble << 4) | val));
             m_pendingNibble = -1;
         }
+        m_hexInToken = true;
     }
 
     return result;

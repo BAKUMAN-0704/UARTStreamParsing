@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QTextStream>
+#include <algorithm>
 
 static QString formatValue(const ParsedField &field) {
     switch (field.dataType) {
@@ -83,26 +84,83 @@ QStringList DataExporter::autoSaveMultiConfig(
     QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
     QStringList savedFiles;
 
-    for (auto it = framesByConfig.constBegin(); it != framesByConfig.constEnd(); ++it) {
-        const QString &name = it.key();
-        const auto &frames = it.value();
+    auto saveGroup = [&](const QString &name, const QVector<ParsedFrame> &frames,
+                         const QString &suffix) -> bool {
+        if (name == endFrameConfigName || frames.isEmpty() || !configMap.contains(name))
+            return true;
 
-        if (name == endFrameConfigName || frames.isEmpty())
-            continue;
-
-        if (!configMap.contains(name))
-            continue;
-
-        QString fileName = name + "_" + timestamp + ".txt";
+        QString fileName = name + "_" + timestamp + suffix + ".txt";
         QString fullPath = dir.absoluteFilePath(fileName);
 
         QString err;
         if (exportToTxt(fullPath, frames, configMap[name], &err)) {
             savedFiles << fullPath;
-        } else if (errorMsg) {
-            *errorMsg = err;
-            return savedFiles;
+            return true;
         }
+
+        if (errorMsg)
+            *errorMsg = err;
+        return false;
+    };
+
+    QVector<int> endOffsets;
+    if (!endFrameConfigName.isEmpty() && framesByConfig.contains(endFrameConfigName)) {
+        for (const auto &frame : framesByConfig[endFrameConfigName])
+            endOffsets.append(frame.offsetInStream);
+        std::sort(endOffsets.begin(), endOffsets.end());
+    }
+
+    if (!endOffsets.isEmpty()) {
+        int sessionStart = -1;
+        int sessionIndex = 1;
+        for (int endOffset : endOffsets) {
+            for (auto it = framesByConfig.constBegin(); it != framesByConfig.constEnd(); ++it) {
+                QVector<ParsedFrame> sessionFrames;
+                for (const auto &frame : it.value()) {
+                    if (frame.offsetInStream > sessionStart && frame.offsetInStream < endOffset)
+                        sessionFrames.append(frame);
+                }
+                if (!saveGroup(it.key(), sessionFrames,
+                               QString("_session%1").arg(sessionIndex)))
+                    return savedFiles;
+            }
+            sessionStart = endOffset;
+            ++sessionIndex;
+        }
+
+        bool hasRemaining = false;
+        for (auto it = framesByConfig.constBegin(); it != framesByConfig.constEnd(); ++it) {
+            if (it.key() == endFrameConfigName)
+                continue;
+            for (const auto &frame : it.value()) {
+                if (frame.offsetInStream > sessionStart) {
+                    hasRemaining = true;
+                    break;
+                }
+            }
+            if (hasRemaining)
+                break;
+        }
+
+        if (hasRemaining) {
+            for (auto it = framesByConfig.constBegin(); it != framesByConfig.constEnd(); ++it) {
+                QVector<ParsedFrame> sessionFrames;
+                for (const auto &frame : it.value()) {
+                    if (frame.offsetInStream > sessionStart)
+                        sessionFrames.append(frame);
+                }
+                if (!saveGroup(it.key(), sessionFrames,
+                               QString("_session%1").arg(sessionIndex)))
+                    return savedFiles;
+            }
+        }
+
+        return savedFiles;
+    }
+
+    for (auto it = framesByConfig.constBegin(); it != framesByConfig.constEnd(); ++it) {
+        if (!saveGroup(it.key(), it.value(), QString()))
+            return savedFiles;
     }
 
     return savedFiles;
