@@ -1,5 +1,6 @@
 #include "FrameParser.h"
 #include "CrcCalculator.h"
+#include "FrameLayout.h"
 #include <QtEndian>
 #include <cstring>
 
@@ -66,54 +67,12 @@ int FrameParser::findHeader(const QByteArray &data, int offset) {
 
 bool FrameParser::tryParseFrame(const QByteArray &data, int offset,
                                 ParsedFrame &frame, int &frameEnd) {
-    int totalSize = m_config.totalFrameSize();
+    const auto sizeResult = FrameLayout::resolveFrameSize(
+        m_config, data, offset, FrameLayout::IncompleteLengthPolicy::ReturnInvalid);
+    if (!sizeResult.valid)
+        return false;
 
-    if (m_config.hasLengthField()) {
-        int lengthFieldOffset = 0;
-        int lengthFieldByteCount = 0;
-        Endianness lengthEndian = Endianness::LITTLE;
-        LengthMeaning lengthMeaning = LengthMeaning::TOTAL;
-
-        int tempOffset = 0;
-        for (const auto &f : m_config.fields) {
-            if (f.fieldType == FieldType::LENGTH) {
-                lengthFieldOffset = tempOffset;
-                lengthFieldByteCount = f.byteCount;
-                lengthEndian = f.endianness;
-                lengthMeaning = f.lengthMeaning;
-                break;
-            }
-            tempOffset += f.byteCount;
-        }
-
-        if (offset + lengthFieldOffset + lengthFieldByteCount > data.size())
-            return false;
-
-        const char *lp = data.constData() + offset + lengthFieldOffset;
-        uint32_t lengthVal = 0;
-        if (lengthFieldByteCount == 1) {
-            lengthVal = static_cast<uint8_t>(*lp);
-        } else if (lengthFieldByteCount == 2) {
-            lengthVal = (lengthEndian == Endianness::BIG)
-                            ? qFromBigEndian<uint16_t>(lp)
-                            : qFromLittleEndian<uint16_t>(lp);
-        } else if (lengthFieldByteCount == 4) {
-            lengthVal = (lengthEndian == Endianness::BIG)
-                            ? qFromBigEndian<uint32_t>(lp)
-                            : qFromLittleEndian<uint32_t>(lp);
-        }
-
-        if (lengthMeaning == LengthMeaning::TOTAL) {
-            totalSize = static_cast<int>(lengthVal);
-        } else {
-            int nonDataSize = 0;
-            for (const auto &f : m_config.fields) {
-                if (f.fieldType != FieldType::DATA)
-                    nonDataSize += f.byteCount;
-            }
-            totalSize = static_cast<int>(lengthVal) + nonDataSize;
-        }
-    }
+    const int totalSize = sizeResult.size;
 
     if (offset + totalSize > data.size())
         return false;

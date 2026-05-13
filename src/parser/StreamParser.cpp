@@ -1,7 +1,7 @@
 #include "StreamParser.h"
+#include "FrameLayout.h"
 #include "../export/DataExporter.h"
 #include <QDir>
-#include <QtEndian>
 #include <algorithm>
 #include <limits>
 #include <cstring>
@@ -92,39 +92,9 @@ int StreamParser::findHeaderIn(const QByteArray &data, int offset,
 
 int StreamParser::computeFrameSize(const FrameConfig &config, const QByteArray &data,
                                    int offset) {
-    if (!config.hasLengthField())
-        return config.totalFrameSize();
-
-    for (const auto &f : config.fields) {
-        if (f.fieldType != FieldType::LENGTH)
-            continue;
-
-        int fieldOff = config.fieldOffset(f.index);
-        if (fieldOff < 0 || offset + fieldOff + f.byteCount > data.size())
-            return config.totalFrameSize();
-
-        const char *lp = data.constData() + offset + fieldOff;
-        uint32_t lengthVal = 0;
-        if (f.byteCount == 1) {
-            lengthVal = static_cast<uint8_t>(*lp);
-        } else if (f.byteCount == 2) {
-            lengthVal = (f.endianness == Endianness::BIG) ? qFromBigEndian<uint16_t>(lp)
-                                                          : qFromLittleEndian<uint16_t>(lp);
-        } else if (f.byteCount == 4) {
-            lengthVal = (f.endianness == Endianness::BIG) ? qFromBigEndian<uint32_t>(lp)
-                                                          : qFromLittleEndian<uint32_t>(lp);
-        }
-
-        if (f.lengthMeaning == LengthMeaning::TOTAL)
-            return static_cast<int>(lengthVal);
-
-        int nonDataSize = 0;
-        for (const auto &ff : config.fields)
-            if (ff.fieldType != FieldType::DATA)
-                nonDataSize += ff.byteCount;
-        return static_cast<int>(lengthVal) + nonDataSize;
-    }
-    return config.totalFrameSize();
+    const auto result = FrameLayout::resolveFrameSize(
+        config, data, offset, FrameLayout::IncompleteLengthPolicy::UseStaticLayoutSize);
+    return result.valid ? result.size : config.totalFrameSize();
 }
 
 bool StreamParser::configHasActiveCrc(const FrameConfig &config) {

@@ -4,6 +4,9 @@
 #include "src/config/FrameFieldDef.h"
 #include "src/datasource/SerialPortManager.h"
 #include "src/parser/StreamParser.h"
+#include "src/codec/HexTextDecoder.h"
+#include "src/workflow/FileParseWorkflow.h"
+#include "src/workflow/ParseExportControlWorkflow.h"
 #include <QMap>
 #include <QThread>
 #include <QWidget>
@@ -45,6 +48,7 @@ private:
     void initSerialUI();
     void initStyle();
     void updateParseButton();
+    void applyParseExportControls(bool parsing = false);
     void showResultDialog(const QMap<QString, QVector<ParsedFrame>> &framesByConfig);
     void setStatus(const QString &msg);
     void setParsingUi(bool parsing);
@@ -58,11 +62,9 @@ private:
     QMap<QString, QVector<ParsedFrame>> m_parsedFramesByConfig;
     bool m_streamingActive = false;
 
-    // HEX text mode for serial: convert "55 AA" text to binary
-    QByteArray convertHexTextToBinary(const QByteArray &hexText);
-    int m_pendingNibble = -1; // carry-over half-byte between chunks
-    bool m_hexSkipNextX = false; // pending leading '0' that may be a "0x" prefix
-    bool m_hexInToken = false;
+    HexTextDecoder m_hexDecoder;
+    FileParseWorkflow m_fileParseWorkflow;
+    ParseExportControlWorkflow m_parseExportControlWorkflow;
 
     // Worker thread for file parsing
     QThread *m_workerThread = nullptr;

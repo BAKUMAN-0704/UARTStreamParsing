@@ -25,18 +25,28 @@ set(PROJECT_SOURCES
         src/config/ConfigParser.cpp
         src/parser/FrameParser.h
         src/parser/FrameParser.cpp
+        src/parser/FrameLayout.h
+        src/parser/FrameLayout.cpp
         src/parser/CrcCalculator.h
         src/parser/CrcCalculator.cpp
         src/datasource/SerialPortManager.h
         src/datasource/SerialPortManager.cpp
         src/datasource/FileDataSource.h
         src/datasource/FileDataSource.cpp
+        src/codec/HexTextDecoder.h
+        src/codec/HexTextDecoder.cpp
         src/export/DataExporter.h
         src/export/DataExporter.cpp
         src/parser/StreamParser.h
         src/parser/StreamParser.cpp
         src/worker/ParseWorker.h
         src/worker/ParseWorker.cpp
+        src/worker/FileParseService.h
+        src/worker/FileParseService.cpp
+        src/workflow/FileParseWorkflow.h
+        src/workflow/FileParseWorkflow.cpp
+        src/workflow/ParseExportControlWorkflow.h
+        src/workflow/ParseExportControlWorkflow.cpp
         resource/fonts.qrc
 )
 
@@ -73,6 +83,8 @@ add_executable(UARTStreamParsingTests
     src/config/FrameFieldDef.h
     src/parser/FrameParser.h
     src/parser/FrameParser.cpp
+    src/parser/FrameLayout.h
+    src/parser/FrameLayout.cpp
     src/parser/CrcCalculator.h
     src/parser/CrcCalculator.cpp
     src/parser/StreamParser.h
@@ -81,6 +93,14 @@ add_executable(UARTStreamParsingTests
     src/export/DataExporter.cpp
     src/datasource/FileDataSource.h
     src/datasource/FileDataSource.cpp
+    src/codec/HexTextDecoder.h
+    src/codec/HexTextDecoder.cpp
+    src/worker/FileParseService.h
+    src/worker/FileParseService.cpp
+    src/workflow/FileParseWorkflow.h
+    src/workflow/FileParseWorkflow.cpp
+    src/workflow/ParseExportControlWorkflow.h
+    src/workflow/ParseExportControlWorkflow.cpp
 )
 
 target_include_directories(UARTStreamParsingTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
