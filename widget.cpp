@@ -302,13 +302,7 @@ void Widget::onBrowseAutoSaveDir() {
 
 // ─── Data source ───
 
-void Widget::onSourceChanged() {
-    if (ui->radioSerial->isChecked())
-        ui->stackedSource->setCurrentIndex(1);
-    else
-        ui->stackedSource->setCurrentIndex(0);
-    updateParseButton();
-}
+void Widget::onSourceChanged() { applyParseExportControls(false); }
 
 void Widget::onRefreshPorts() {
     ui->comboPort->clear();
@@ -407,6 +401,7 @@ void Widget::onClosePort() {
     ui->btnClosePort->setEnabled(false);
     ui->labelSerialStatus->setText("未连接");
     setStatus("串口已关闭");
+    applyParseExportControls(false);
 }
 
 void Widget::onBrowseDataFile() {
@@ -495,27 +490,17 @@ void Widget::onParse() {
                 [this](bool success, const QString &errorMsg) {
                     if (success) {
                         const FileParseResult &result = m_worker->result();
-                        m_rawData = result.rawData;
-                        m_parsedFramesByConfig = result.framesByConfig;
-                        QStringList autoSaved = result.autoSavedFiles;
+                        const FileParseCompletionView view =
+                            m_fileParseWorkflow.completeFileParse(result);
+                        m_rawData = view.rawData;
+                        m_parsedFramesByConfig = view.framesByConfig;
 
-                        int total = 0;
-                        for (const auto &f : m_parsedFramesByConfig)
-                            total += f.size();
+                        setStatus(view.statusMessage);
+                        ui->btnExport->setEnabled(view.exportEnabled);
 
-                        QString statusMsg =
-                            QString("解析完成: %1 帧, 共 %2 字节")
-                                .arg(total)
-                                .arg(m_rawData.size());
-                        if (!autoSaved.isEmpty())
-                            statusMsg +=
-                                QString(", 自动保存 %1 个文件").arg(autoSaved.size());
-                        setStatus(statusMsg);
-                        ui->btnExport->setEnabled(total > 0);
-
-                        if (total == 0) {
+                        if (view.showEmptyResultMessage) {
                             QMessageBox::information(this, "解析结果", "未找到有效帧");
-                        } else {
+                        } else if (view.showResultDialog) {
                             showResultDialog(m_parsedFramesByConfig);
                         }
                     } else {
@@ -644,12 +629,32 @@ void Widget::onExport() {
 
 // ─── UI helpers ───
 
-void Widget::updateParseButton() {
-    bool hasConfigs = !m_streamParser->configs().isEmpty();
-    bool hasData = !m_rawData.isEmpty() || m_serialManager->isOpen() ||
-                   (ui->radioFile->isChecked() && !ui->editDataFilePath->text().isEmpty());
-    bool isStreaming = m_streamingActive && ui->radioSerial->isChecked();
-    ui->btnParse->setEnabled(hasConfigs && hasData && !isStreaming && !m_workerThread);
+void Widget::updateParseButton() { applyParseExportControls(false); }
+
+void Widget::applyParseExportControls(bool parsing) {
+    ParseExportControlInput input;
+    input.sourceMode = ui->radioSerial->isChecked()
+                           ? ParseExportSourceMode::Serial
+                           : ParseExportSourceMode::File;
+    input.hasConfigs = !m_streamParser->configs().isEmpty();
+    input.hasRawData = !m_rawData.isEmpty();
+    input.serialOpen = m_serialManager->isOpen();
+    input.hasFilePath = !ui->editDataFilePath->text().isEmpty();
+    input.streamingActive = m_streamingActive;
+    input.workerActive = m_workerThread != nullptr;
+    input.parsing = parsing;
+    input.hasExportableFrames =
+        m_parseExportControlWorkflow.hasExportableFrames(m_parsedFramesByConfig);
+
+    const ParseExportControlView view = m_parseExportControlWorkflow.resolve(input);
+
+    ui->stackedSource->setCurrentIndex(view.sourcePageIndex);
+    ui->progressBar->setVisible(view.progressVisible);
+    ui->progressBar->setValue(view.progressValue);
+    ui->btnParse->setEnabled(view.parseEnabled);
+    ui->btnExport->setEnabled(view.exportEnabled);
+    ui->btnBrowseConfig->setEnabled(view.browseConfigEnabled);
+    ui->btnBrowseDataFile->setEnabled(view.browseDataFileEnabled);
 }
 
 QString Widget::formatFieldValue(const ParsedField &pf) {
@@ -713,11 +718,4 @@ void Widget::showResultDialog(const QMap<QString, QVector<ParsedFrame>> &framesB
 
 void Widget::setStatus(const QString &msg) { ui->labelStatus->setText(msg); }
 
-void Widget::setParsingUi(bool parsing) {
-    ui->progressBar->setVisible(parsing);
-    ui->progressBar->setValue(0);
-    ui->btnParse->setEnabled(!parsing);
-    ui->btnExport->setEnabled(!parsing);
-    ui->btnBrowseConfig->setEnabled(!parsing);
-    ui->btnBrowseDataFile->setEnabled(!parsing);
-}
+void Widget::setParsingUi(bool parsing) { applyParseExportControls(parsing); }

@@ -3,6 +3,8 @@
 #include "src/export/DataExporter.h"
 #include "src/codec/HexTextDecoder.h"
 #include "src/worker/FileParseService.h"
+#include "src/workflow/FileParseWorkflow.h"
+#include "src/workflow/ParseExportControlWorkflow.h"
 
 #include <QDir>
 #include <QFile>
@@ -21,6 +23,15 @@ private slots:
     void fileParseServiceParsesHexFileWithProgress();
     void fileParseServiceCapturesAutoSaveCompleted();
     void fileParseServiceRejectsEmptyDecodedData();
+    void fileParseWorkflowBuildsSuccessfulCompletionWithFrames();
+    void fileParseWorkflowBuildsEmptyCompletion();
+    void fileParseWorkflowIncludesAutoSaveCountInStatus();
+    void parseExportControlSelectsSourcePage();
+    void parseExportControlEnablesFileParseWhenReady();
+    void parseExportControlDisablesSerialParseWhileStreaming();
+    void parseExportControlDisablesSerialParseAfterCloseWithoutBufferedData();
+    void parseExportControlDisablesControlsWhileParsing();
+    void parseExportControlEnablesExportOnlyWithFrames();
     void parsesSharedHeaderFormatsRegardlessOfOrder();
     void specificConfigBeatsGenericFirstConfig();
     void manualMultiConfigExportSplitsByEndFrameOffsets();
@@ -400,6 +411,146 @@ void StreamParserTest::fileParseServiceRejectsEmptyDecodedData() {
     QVERIFY(result.rawData.isEmpty());
     QVERIFY(result.autoSavedFiles.isEmpty());
     QCOMPARE(result.totalFrames(), 0);
+}
+
+void StreamParserTest::fileParseWorkflowBuildsSuccessfulCompletionWithFrames() {
+    FileParseResult result;
+    result.success = true;
+    result.rawData = bytes({0x51, 0xFA, 0x01, 0x10, 0x5A, 0x78});
+    ParsedFrame frame;
+    frame.configName = "data";
+    result.framesByConfig["data"].append(frame);
+
+    FileParseWorkflow workflow;
+    const FileParseCompletionView view = workflow.completeFileParse(result);
+
+    QCOMPARE(view.rawData, result.rawData);
+    QCOMPARE(view.framesByConfig.value("data").size(), 1);
+    QCOMPARE(view.statusMessage, QString("解析完成: 1 帧, 共 6 字节"));
+    QVERIFY(view.exportEnabled);
+    QVERIFY(view.showResultDialog);
+    QVERIFY(!view.showEmptyResultMessage);
+}
+
+void StreamParserTest::fileParseWorkflowBuildsEmptyCompletion() {
+    FileParseResult result;
+    result.success = true;
+    result.rawData = bytes({0x51, 0xFA, 0x01, 0x10, 0x5A, 0x78});
+
+    FileParseWorkflow workflow;
+    const FileParseCompletionView view = workflow.completeFileParse(result);
+
+    QCOMPARE(view.rawData, result.rawData);
+    QVERIFY(view.framesByConfig.isEmpty());
+    QCOMPARE(view.statusMessage, QString("解析完成: 0 帧, 共 6 字节"));
+    QVERIFY(!view.exportEnabled);
+    QVERIFY(!view.showResultDialog);
+    QVERIFY(view.showEmptyResultMessage);
+}
+
+void StreamParserTest::fileParseWorkflowIncludesAutoSaveCountInStatus() {
+    FileParseResult result;
+    result.success = true;
+    result.rawData = bytes({0x51, 0xFA, 0x01, 0x10, 0x5A, 0x78});
+    ParsedFrame frame;
+    frame.configName = "data";
+    result.framesByConfig["data"].append(frame);
+    result.autoSavedFiles << "first.txt" << "second.txt";
+
+    FileParseWorkflow workflow;
+    const FileParseCompletionView view = workflow.completeFileParse(result);
+
+    QCOMPARE(view.statusMessage, QString("解析完成: 1 帧, 共 6 字节, 自动保存 2 个文件"));
+    QVERIFY(view.exportEnabled);
+    QVERIFY(view.showResultDialog);
+    QVERIFY(!view.showEmptyResultMessage);
+}
+
+void StreamParserTest::parseExportControlSelectsSourcePage() {
+    ParseExportControlWorkflow workflow;
+    ParseExportControlInput input;
+
+    input.sourceMode = ParseExportSourceMode::File;
+    QCOMPARE(workflow.resolve(input).sourcePageIndex, 0);
+
+    input.sourceMode = ParseExportSourceMode::Serial;
+    QCOMPARE(workflow.resolve(input).sourcePageIndex, 1);
+}
+
+void StreamParserTest::parseExportControlEnablesFileParseWhenReady() {
+    ParseExportControlWorkflow workflow;
+    ParseExportControlInput input;
+    input.sourceMode = ParseExportSourceMode::File;
+    input.hasConfigs = true;
+    input.hasFilePath = true;
+
+    QVERIFY(workflow.resolve(input).parseEnabled);
+
+    input.workerActive = true;
+    QVERIFY(!workflow.resolve(input).parseEnabled);
+}
+
+void StreamParserTest::parseExportControlDisablesSerialParseWhileStreaming() {
+    ParseExportControlWorkflow workflow;
+    ParseExportControlInput input;
+    input.sourceMode = ParseExportSourceMode::Serial;
+    input.hasConfigs = true;
+    input.serialOpen = true;
+    input.streamingActive = true;
+
+    QVERIFY(!workflow.resolve(input).parseEnabled);
+}
+
+void StreamParserTest::parseExportControlDisablesSerialParseAfterCloseWithoutBufferedData() {
+    ParseExportControlWorkflow workflow;
+    ParseExportControlInput input;
+    input.sourceMode = ParseExportSourceMode::Serial;
+    input.hasConfigs = true;
+
+    QVERIFY(!workflow.resolve(input).parseEnabled);
+}
+
+void StreamParserTest::parseExportControlDisablesControlsWhileParsing() {
+    ParseExportControlWorkflow workflow;
+    ParseExportControlInput input;
+    input.sourceMode = ParseExportSourceMode::File;
+    input.hasConfigs = true;
+    input.hasFilePath = true;
+    input.parsing = true;
+    input.hasExportableFrames = true;
+
+    const ParseExportControlView view = workflow.resolve(input);
+
+    QVERIFY(view.progressVisible);
+    QCOMPARE(view.progressValue, 0);
+    QVERIFY(!view.parseEnabled);
+    QVERIFY(!view.exportEnabled);
+    QVERIFY(!view.browseConfigEnabled);
+    QVERIFY(!view.browseDataFileEnabled);
+}
+
+void StreamParserTest::parseExportControlEnablesExportOnlyWithFrames() {
+    ParseExportControlWorkflow workflow;
+
+    QMap<QString, QVector<ParsedFrame>> framesByConfig;
+    QVERIFY(!workflow.hasExportableFrames(framesByConfig));
+
+    framesByConfig["data"] = {};
+    QVERIFY(!workflow.hasExportableFrames(framesByConfig));
+
+    ParsedFrame frame;
+    frame.configName = "data";
+    framesByConfig["data"].append(frame);
+    QVERIFY(workflow.hasExportableFrames(framesByConfig));
+
+    ParseExportControlInput input;
+    QVERIFY(!workflow.resolve(input).exportEnabled);
+
+    input.hasExportableFrames = true;
+    QVERIFY(workflow.resolve(input).exportEnabled);
+
+    input.parsing = true;
+    QVERIFY(!workflow.resolve(input).exportEnabled);
 }
 
 QMap<QString, QVector<int>> StreamParserTest::exportedRowsByConfig(const QStringList &files) {

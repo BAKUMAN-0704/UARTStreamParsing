@@ -41,6 +41,10 @@ set(PROJECT_SOURCES
         src/worker/ParseWorker.cpp
         src/worker/FileParseService.h
         src/worker/FileParseService.cpp
+        src/workflow/FileParseWorkflow.h
+        src/workflow/FileParseWorkflow.cpp
+        src/workflow/ParseExportControlWorkflow.h
+        src/workflow/ParseExportControlWorkflow.cpp
         resource/fonts.qrc
 )
 
@@ -89,6 +93,10 @@ add_executable(UARTStreamParsingTests
     src/codec/HexTextDecoder.cpp
     src/worker/FileParseService.h
     src/worker/FileParseService.cpp
+    src/workflow/FileParseWorkflow.h
+    src/workflow/FileParseWorkflow.cpp
+    src/workflow/ParseExportControlWorkflow.h
+    src/workflow/ParseExportControlWorkflow.cpp
 )
 
 target_include_directories(UARTStreamParsingTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

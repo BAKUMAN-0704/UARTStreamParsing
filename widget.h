@@ -5,6 +5,8 @@
 #include "src/datasource/SerialPortManager.h"
 #include "src/parser/StreamParser.h"
 #include "src/codec/HexTextDecoder.h"
+#include "src/workflow/FileParseWorkflow.h"
+#include "src/workflow/ParseExportControlWorkflow.h"
 #include <QMap>
 #include <QThread>
 #include <QWidget>
@@ -46,6 +48,7 @@ private:
     void initSerialUI();
     void initStyle();
     void updateParseButton();
+    void applyParseExportControls(bool parsing = false);
     void showResultDialog(const QMap<QString, QVector<ParsedFrame>> &framesByConfig);
     void setStatus(const QString &msg);
     void setParsingUi(bool parsing);
@@ -60,6 +63,8 @@ private:
     bool m_streamingActive = false;
 
     HexTextDecoder m_hexDecoder;
+    FileParseWorkflow m_fileParseWorkflow;
+    ParseExportControlWorkflow m_parseExportControlWorkflow;
 
     // Worker thread for file parsing
     QThread *m_workerThread = nullptr;
