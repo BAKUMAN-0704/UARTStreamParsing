@@ -1,6 +1,8 @@
 #include "src/parser/StreamParser.h"
 #include "src/datasource/FileDataSource.h"
 #include "src/export/DataExporter.h"
+#include "src/codec/HexTextDecoder.h"
+#include "src/worker/FileParseService.h"
 
 #include <QDir>
 #include <QFile>
@@ -13,6 +15,12 @@ class StreamParserTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void decodesHexTextAsWholeString();
+    void decodesHexTextAcrossChunks();
+    void fileDataSourceUsesSharedHexRules();
+    void fileParseServiceParsesHexFileWithProgress();
+    void fileParseServiceCapturesAutoSaveCompleted();
+    void fileParseServiceRejectsEmptyDecodedData();
     void parsesSharedHeaderFormatsRegardlessOfOrder();
     void specificConfigBeatsGenericFirstConfig();
     void manualMultiConfigExportSplitsByEndFrameOffsets();
@@ -228,6 +236,170 @@ QVector<ConfigEntry> StreamParserTest::generatedConfigs() {
         {"test_config_multi_padding", {}, frame3, false},
         {"test_config_endframe", {}, endFrame, true},
     };
+}
+
+void StreamParserTest::decodesHexTextAsWholeString() {
+    QCOMPARE(HexTextDecoder::decodeAll(QByteArray("55 AA 1a")), bytes({0x55, 0xAA, 0x1A}));
+    QCOMPARE(HexTextDecoder::decodeAll(QByteArray("0x55,0XAA;1a")), bytes({0x55, 0xAA, 0x1A}));
+    QCOMPARE(HexTextDecoder::decodeAll(QByteArray("A")), bytes({0x0A}));
+    QCOMPARE(HexTextDecoder::decodeAll(QByteArray("0")), bytes({0x00}));
+}
+
+void StreamParserTest::decodesHexTextAcrossChunks() {
+    HexTextDecoder decoder;
+    QByteArray decoded;
+    decoded.append(decoder.append("5"));
+    decoded.append(decoder.append("5"));
+    decoded.append(decoder.finish());
+    QCOMPARE(decoded, bytes({0x55}));
+
+    decoder.reset();
+    decoded.clear();
+    decoded.append(decoder.append("0"));
+    decoded.append(decoder.append("x55"));
+    decoded.append(decoder.finish());
+    QCOMPARE(decoded, bytes({0x55}));
+
+    decoder.reset();
+    decoded.clear();
+    decoded.append(decoder.append("A"));
+    decoded.append(decoder.finish());
+    QCOMPARE(decoded, bytes({0x0A}));
+
+    decoder.reset();
+    decoded.clear();
+    decoded.append(decoder.append("5Z"));
+    decoded.append(decoder.append("A"));
+    decoded.append(decoder.finish());
+    QCOMPARE(decoded, bytes({0x05, 0x0A}));
+}
+
+void StreamParserTest::fileDataSourceUsesSharedHexRules() {
+    QString errorMsg;
+    QCOMPARE(FileDataSource::parseHexString("0x55,0XAA;1a", &errorMsg),
+             bytes({0x55, 0xAA, 0x1A}));
+    QVERIFY2(errorMsg.isEmpty(), qPrintable(errorMsg));
+    QCOMPARE(FileDataSource::parseHexString("0", &errorMsg), bytes({0x00}));
+    QVERIFY2(errorMsg.isEmpty(), qPrintable(errorMsg));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("hex.txt");
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("0x55,0XAA;1a 0");
+    file.close();
+
+    QCOMPARE(FileDataSource::readHexFile(path, &errorMsg), bytes({0x55, 0xAA, 0x1A, 0x00}));
+    QVERIFY2(errorMsg.isEmpty(), qPrintable(errorMsg));
+}
+
+void StreamParserTest::fileParseServiceParsesHexFileWithProgress() {
+    QVector<ConfigEntry> configs = {
+        {"data", {}, makeConfig(0x01, true, FieldType::DATA), false},
+    };
+    QByteArray stream;
+    stream.append(makeFrame(0x01, 0x10));
+    stream.append(makeFrame(0x01, 0x11));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("stream.txt");
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(stream.toHex(' '));
+    file.close();
+
+    FileParseRequest request;
+    request.filePath = path;
+    request.configs = configs;
+
+    QVector<QPair<int, QString>> progress;
+    FileParseService service;
+    const FileParseResult result = service.parse(request, [&progress](int percent, const QString &status) {
+        progress.append({percent, status});
+    });
+
+    QVERIFY2(result.success, qPrintable(result.errorMsg));
+    QVERIFY(result.errorMsg.isEmpty());
+    QCOMPARE(result.rawData, stream);
+    QCOMPARE(result.framesByConfig.value("data").size(), 2);
+    QCOMPARE(result.totalFrames(), 2);
+    QVERIFY(!progress.isEmpty());
+    QCOMPARE(progress.first().first, 0);
+    QCOMPARE(progress.first().second, QString("正在读取文件..."));
+    QVERIFY(std::any_of(progress.cbegin(), progress.cend(), [](const auto &item) {
+        return item.first == 40 && item.second.startsWith("正在解析 ");
+    }));
+    QCOMPARE(progress.last().first, 100);
+    QCOMPARE(progress.last().second, QString("解析完成: 2 帧"));
+}
+
+void StreamParserTest::fileParseServiceCapturesAutoSaveCompleted() {
+    QVector<ConfigEntry> configs = {
+        {"data", {}, makeConfig(0x01, true, FieldType::DATA), false},
+        {"end", {}, makeConfig(0x04, true, FieldType::DATA), true},
+    };
+
+    QByteArray stream;
+    stream.append(makeFrame(0x01, 0x10));
+    stream.append(makeFrame(0x01, 0x11));
+    stream.append(makeFrame(0x04, 0x40));
+    stream.append(makeFrame(0x01, 0x12));
+    stream.append(makeFrame(0x04, 0x41));
+
+    QTemporaryDir inputDir;
+    QTemporaryDir saveDir;
+    QVERIFY(inputDir.isValid());
+    QVERIFY(saveDir.isValid());
+    const QString path = inputDir.filePath("stream.txt");
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(stream.toHex(' '));
+    file.close();
+
+    FileParseRequest request;
+    request.filePath = path;
+    request.configs = configs;
+    request.autoSaveDir = saveDir.path();
+    request.autoSaveSequenceStart = -5;
+
+    FileParseService service;
+    const FileParseResult result = service.parse(request);
+
+    QVERIFY2(result.success, qPrintable(result.errorMsg));
+    QCOMPARE(result.framesByConfig.value("data").size(), 3);
+    QCOMPARE(result.framesByConfig.value("end").size(), 2);
+    QCOMPARE(result.autoSavedFiles.size(), 2);
+    const QString firstName = QFileInfo(result.autoSavedFiles[0]).fileName();
+    const QString secondName = QFileInfo(result.autoSavedFiles[1]).fileName();
+    QVERIFY2(firstName.startsWith("-5-data_"), qPrintable(firstName));
+    QVERIFY2(secondName.startsWith("-4-data_"), qPrintable(secondName));
+    QCOMPARE(exportedDataRowCount(result.autoSavedFiles[0]), 2);
+    QCOMPARE(exportedDataRowCount(result.autoSavedFiles[1]), 1);
+}
+
+void StreamParserTest::fileParseServiceRejectsEmptyDecodedData() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("empty.txt");
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("   , ; \n");
+    file.close();
+
+    FileParseRequest request;
+    request.filePath = path;
+    request.configs = {{"data", {}, makeConfig(0x01, true, FieldType::DATA), false}};
+
+    FileParseService service;
+    const FileParseResult result = service.parse(request);
+
+    QVERIFY(!result.success);
+    QCOMPARE(result.errorMsg, QString("文件为空或未包含有效的十六进制数据"));
+    QVERIFY(result.rawData.isEmpty());
+    QVERIFY(result.autoSavedFiles.isEmpty());
+    QCOMPARE(result.totalFrames(), 0);
 }
 
 QMap<QString, QVector<int>> StreamParserTest::exportedRowsByConfig(const QStringList &files) {

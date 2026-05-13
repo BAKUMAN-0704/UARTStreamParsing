@@ -31,12 +31,16 @@ set(PROJECT_SOURCES
         src/datasource/SerialPortManager.cpp
         src/datasource/FileDataSource.h
         src/datasource/FileDataSource.cpp
+        src/codec/HexTextDecoder.h
+        src/codec/HexTextDecoder.cpp
         src/export/DataExporter.h
         src/export/DataExporter.cpp
         src/parser/StreamParser.h
         src/parser/StreamParser.cpp
         src/worker/ParseWorker.h
         src/worker/ParseWorker.cpp
+        src/worker/FileParseService.h
+        src/worker/FileParseService.cpp
         resource/fonts.qrc
 )
 
@@ -81,6 +85,10 @@ add_executable(UARTStreamParsingTests
     src/export/DataExporter.cpp
     src/datasource/FileDataSource.h
     src/datasource/FileDataSource.cpp
+    src/codec/HexTextDecoder.h
+    src/codec/HexTextDecoder.cpp
+    src/worker/FileParseService.h
+    src/worker/FileParseService.cpp
 )
 
 target_include_directories(UARTStreamParsingTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

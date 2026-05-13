@@ -368,10 +368,7 @@ void Widget::onOpenPort() {
         bool hasConfigs = !m_streamParser->configs().isEmpty();
         m_streamingActive = hasConfigs;
 
-        // Reset HEX text conversion state
-        m_pendingNibble = -1;
-        m_hexSkipNextX = false;
-        m_hexInToken = false;
+        m_hexDecoder.reset();
 
         if (m_streamingActive)
             setStatus("实时解析已启动 - " + config.portName);
@@ -383,16 +380,7 @@ void Widget::onOpenPort() {
 
 void Widget::onClosePort() {
     if (m_streamingActive && ui->chkHexMode->isChecked()) {
-        QByteArray trailing;
-        if (m_hexSkipNextX)
-            trailing.append(static_cast<char>(0));
-        else if (m_pendingNibble >= 0)
-            trailing.append(static_cast<char>(m_pendingNibble));
-
-        m_pendingNibble = -1;
-        m_hexSkipNextX = false;
-        m_hexInToken = false;
-
+        QByteArray trailing = m_hexDecoder.finish();
         if (!trailing.isEmpty())
             m_streamParser->feedData(trailing);
     }
@@ -432,74 +420,12 @@ void Widget::onBrowseDataFile() {
 
 // ─── Serial data ───
 
-static inline int hexVal(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    return -1;
-}
-
-QByteArray Widget::convertHexTextToBinary(const QByteArray &hexText) {
-    QByteArray result;
-    result.reserve(hexText.size() / 2);
-
-    auto flushPending = [&]() {
-        if (m_hexSkipNextX) {
-            result.append(static_cast<char>(0));
-            m_hexSkipNextX = false;
-        }
-        if (m_pendingNibble >= 0) {
-            result.append(static_cast<char>(m_pendingNibble));
-            m_pendingNibble = -1;
-        }
-        m_hexInToken = false;
-    };
-
-    for (char c : hexText) {
-        if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',' || c == ';') {
-            flushPending();
-            continue;
-        }
-
-        if (m_hexSkipNextX) {
-            m_hexSkipNextX = false;
-            if (c == 'x' || c == 'X') {
-                m_hexInToken = true;
-                continue;
-            }
-            m_pendingNibble = 0;
-        }
-
-        int val = hexVal(c);
-        if (val < 0) {
-            flushPending();
-            continue;
-        }
-
-        if (!m_hexInToken && val == 0 && m_pendingNibble < 0) {
-            m_hexSkipNextX = true;
-            m_hexInToken = true;
-            continue;
-        }
-
-        if (m_pendingNibble < 0) {
-            m_pendingNibble = val;
-        } else {
-            result.append(static_cast<char>((m_pendingNibble << 4) | val));
-            m_pendingNibble = -1;
-        }
-        m_hexInToken = true;
-    }
-
-    return result;
-}
-
 void Widget::onSerialDataReceived(const QByteArray &data) {
     if (m_streamingActive && !m_streamParser->configs().isEmpty()) {
         // Check if HEX text mode is enabled
         bool hexMode = ui->chkHexMode->isChecked();
         if (hexMode) {
-            QByteArray binary = convertHexTextToBinary(data);
+            QByteArray binary = m_hexDecoder.append(data);
             if (!binary.isEmpty())
                 m_streamParser->feedData(binary);
         } else {
@@ -568,9 +494,10 @@ void Widget::onParse() {
         connect(m_worker, &ParseWorker::finished, this,
                 [this](bool success, const QString &errorMsg) {
                     if (success) {
-                        m_rawData = std::move(m_worker->m_rawData);
-                        m_parsedFramesByConfig = std::move(m_worker->m_framesByConfig);
-                        QStringList autoSaved = m_worker->m_autoSavedFiles;
+                        const FileParseResult &result = m_worker->result();
+                        m_rawData = result.rawData;
+                        m_parsedFramesByConfig = result.framesByConfig;
+                        QStringList autoSaved = result.autoSavedFiles;
 
                         int total = 0;
                         for (const auto &f : m_parsedFramesByConfig)

@@ -1,0 +1,5 @@
+refactor: 复用文件解析与十六进制解码逻辑
+
+抽离共享解码器与文件解析服务，统一文件模式和串口 HEX 文本模式的处理规则，并补充相关测试覆盖。
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>

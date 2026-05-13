@@ -1,12 +1,8 @@
 #ifndef PARSEWORKER_H
 #define PARSEWORKER_H
 
-#include "../config/FrameFieldDef.h"
-#include "../parser/StreamParser.h"
-#include <QByteArray>
-#include <QMap>
+#include "FileParseService.h"
 #include <QObject>
-#include <QVector>
 
 class ParseWorker : public QObject {
     Q_OBJECT
@@ -16,11 +12,7 @@ public:
     void setConfigs(const QVector<ConfigEntry> &configs) { m_configs = configs; }
     void setAutoSaveDir(const QString &dir) { m_autoSaveDir = dir; }
     void setAutoSaveSequenceStart(int start) { m_autoSaveSequenceStart = start; }
-
-    // Results (safe to read from main thread after finished() is emitted)
-    QMap<QString, QVector<ParsedFrame>> m_framesByConfig;
-    QByteArray m_rawData;
-    QStringList m_autoSavedFiles;
+    const FileParseResult &result() const { return m_result; }
 
 public slots:
     void process(const QString &filePath);
@@ -33,6 +25,7 @@ private:
     QVector<ConfigEntry> m_configs;
     QString m_autoSaveDir;
     int m_autoSaveSequenceStart = 1;
+    FileParseResult m_result;
 };
 
 #endif // PARSEWORKER_H
