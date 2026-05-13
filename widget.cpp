@@ -16,6 +16,7 @@
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QSerialPort>
+#include <QSpinBox>
 
 Widget::Widget(QWidget *parent) : QWidget(parent), ui(new Ui::Widget) {
     ui->setupUi(this);
@@ -32,6 +33,8 @@ Widget::Widget(QWidget *parent) : QWidget(parent), ui(new Ui::Widget) {
     connect(ui->chkEndFrame, &QCheckBox::toggled, this, &Widget::onEndFrameToggled);
     connect(ui->btnBrowseAutoSaveDir, &QPushButton::clicked, this,
             &Widget::onBrowseAutoSaveDir);
+    connect(ui->spinAutoSaveSequenceStart, QOverload<int>::of(&QSpinBox::valueChanged),
+            m_streamParser, &StreamParser::setAutoSaveSequenceStart);
 
     // Data source
     connect(ui->radioSerial, &QRadioButton::toggled, this, &Widget::onSourceChanged);
@@ -353,6 +356,7 @@ void Widget::onOpenPort() {
         ui->btnClosePort->setEnabled(true);
         ui->labelSerialStatus->setText("已连接 - " + config.portName);
         m_rawData.clear();
+        m_streamParser->setAutoSaveSequenceStart(ui->spinAutoSaveSequenceStart->value());
         m_streamParser->resetStream();
 
         // Sync auto-save dir from UI before streaming starts
@@ -549,6 +553,7 @@ void Widget::onParse() {
         m_worker = new ParseWorker();
         m_worker->setConfigs(m_streamParser->configs());
         m_worker->setAutoSaveDir(m_streamParser->autoSaveDir());
+        m_worker->setAutoSaveSequenceStart(ui->spinAutoSaveSequenceStart->value());
         m_worker->moveToThread(m_workerThread);
 
         connect(m_workerThread, &QThread::started, m_worker,
@@ -611,6 +616,7 @@ void Widget::onParse() {
             return;
         }
 
+        m_streamParser->setAutoSaveSequenceStart(ui->spinAutoSaveSequenceStart->value());
         m_parsedFramesByConfig = m_streamParser->parseBatch(m_rawData);
 
         int total = 0;
@@ -692,7 +698,8 @@ void Widget::onExport() {
 
         QString errorMsg;
         QStringList saved = DataExporter::autoSaveMultiConfig(
-            dir, m_parsedFramesByConfig, configMap, endFrameName, &errorMsg);
+            dir, m_parsedFramesByConfig, configMap, endFrameName,
+            ui->spinAutoSaveSequenceStart->value(), &errorMsg);
 
         if (!errorMsg.isEmpty()) {
             QMessageBox::critical(this, "导出失败", errorMsg);

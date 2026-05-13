@@ -55,6 +55,15 @@ void StreamParser::setEndFrameConfig(const QString &name) {
         c.isEndFrame = (c.name == name);
 }
 
+void StreamParser::setAutoSaveSequenceStart(int start) {
+    m_autoSaveSequenceStart = start;
+    resetAutoSaveSequence();
+}
+
+void StreamParser::resetAutoSaveSequence() {
+    m_nextAutoSaveSequence = m_autoSaveSequenceStart;
+}
+
 void StreamParser::clearAccumulatedFrames() {
     for (auto it = m_accumulatedFrames.begin(); it != m_accumulatedFrames.end(); ++it)
         it.value().clear();
@@ -229,6 +238,7 @@ void StreamParser::resetStream() {
     m_buffer.clear();
     m_streamingMode = false;
     m_totalStreamFrames = 0;
+    resetAutoSaveSequence();
     for (auto &p : m_parsers)
         p.setLightweight(false);
     clearAccumulatedFrames();
@@ -316,15 +326,13 @@ void StreamParser::flushAndSave() {
 
 QStringList StreamParser::saveFramesToDir(
     const QMap<QString, QVector<ParsedFrame>> &frames) {
-    static int saveCounter = 0;
-    ++saveCounter;
+    const int sequence = m_nextAutoSaveSequence++;
 
     QDir dir(m_autoSaveDir);
     if (!dir.exists())
         dir.mkpath(".");
 
-    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss")
-                        + QString("_%1").arg(saveCounter);
+    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
     QStringList savedFiles;
 
     for (const auto &entry : m_configs) {
@@ -335,7 +343,7 @@ QStringList StreamParser::saveFramesToDir(
         if (flist.isEmpty())
             continue;
 
-        QString fileName = entry.name + "_" + timestamp + ".txt";
+        QString fileName = QString("%1-%2_%3.txt").arg(sequence).arg(entry.name).arg(timestamp);
         QString fullPath = dir.absoluteFilePath(fileName);
 
         QString errorMsg;

@@ -148,6 +148,26 @@
           </property>
          </widget>
         </item>
+        <item>
+         <widget class="QLabel" name="labelAutoSaveSequenceStart">
+          <property name="text">
+           <string>起始序号:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="spinAutoSaveSequenceStart">
+          <property name="minimum">
+           <number>-2147483648</number>
+          </property>
+          <property name="maximum">
+           <number>2147483647</number>
+          </property>
+          <property name="value">
+           <number>1</number>
+          </property>
+         </widget>
+        </item>
        </layout>
       </item>
      </layout>

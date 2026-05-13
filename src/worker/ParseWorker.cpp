@@ -28,6 +28,7 @@ void ParseWorker::process(const QString &filePath) {
         parser.addConfig(cfg);
     if (!m_autoSaveDir.isEmpty())
         parser.setAutoSaveDir(m_autoSaveDir);
+    parser.setAutoSaveSequenceStart(m_autoSaveSequenceStart);
 
     // Collect auto-saved files via direct connection (same thread)
     m_autoSavedFiles.clear();

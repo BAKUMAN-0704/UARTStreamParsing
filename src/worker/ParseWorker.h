@@ -15,6 +15,7 @@ public:
 
     void setConfigs(const QVector<ConfigEntry> &configs) { m_configs = configs; }
     void setAutoSaveDir(const QString &dir) { m_autoSaveDir = dir; }
+    void setAutoSaveSequenceStart(int start) { m_autoSaveSequenceStart = start; }
 
     // Results (safe to read from main thread after finished() is emitted)
     QMap<QString, QVector<ParsedFrame>> m_framesByConfig;
@@ -31,6 +32,7 @@ signals:
 private:
     QVector<ConfigEntry> m_configs;
     QString m_autoSaveDir;
+    int m_autoSaveSequenceStart = 1;
 };
 
 #endif // PARSEWORKER_H

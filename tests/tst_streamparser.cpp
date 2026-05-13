@@ -16,7 +16,10 @@ private slots:
     void parsesSharedHeaderFormatsRegardlessOfOrder();
     void specificConfigBeatsGenericFirstConfig();
     void manualMultiConfigExportSplitsByEndFrameOffsets();
+    void manualMultiConfigExportUsesConfiguredLeadingSequence();
     void streamingAutoSaveSplitsAcrossChunkBoundaries();
+    void streamingAutoSaveUsesConfiguredLeadingSequence();
+    void streamingAutoSaveSequenceIsPerParserInstance();
     void generatedFileStreamingMatchesBatchAutoSave();
 
 private:
@@ -237,7 +240,10 @@ QMap<QString, QVector<int>> StreamParserTest::exportedRowsByConfig(const QString
     };
 
     for (const QString &filePath : files) {
-        const QString fileName = QFileInfo(filePath).fileName();
+        QString fileName = QFileInfo(filePath).fileName();
+        const int dashIndex = fileName.indexOf('-');
+        if (dashIndex >= 0)
+            fileName = fileName.mid(dashIndex + 1);
         for (const QString &name : names) {
             if (fileName.startsWith(name + "_")) {
                 result[name].append(exportedDataRowCount(filePath));
@@ -333,6 +339,47 @@ void StreamParserTest::manualMultiConfigExportSplitsByEndFrameOffsets() {
     QCOMPARE(exportedDataRowCount(saved[1]), 1);
 }
 
+void StreamParserTest::manualMultiConfigExportUsesConfiguredLeadingSequence() {
+    QVector<ConfigEntry> configs = {
+        {"data", {}, makeConfig(0x01, true, FieldType::DATA), false},
+        {"end", {}, makeConfig(0x04, true, FieldType::DATA), true},
+    };
+
+    QByteArray stream;
+    stream.append(makeFrame(0x01, 0x10));
+    stream.append(makeFrame(0x01, 0x11));
+    stream.append(makeFrame(0x04, 0x40));
+    stream.append(makeFrame(0x01, 0x12));
+    stream.append(makeFrame(0x04, 0x41));
+
+    StreamParser parser;
+    for (const auto &config : configs)
+        parser.addConfig(config);
+    const auto results = parser.parseBatch(stream);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QMap<QString, FrameConfig> configMap;
+    for (const auto &config : configs)
+        configMap[config.name] = config.config;
+
+    QString errorMsg;
+    const QStringList saved = DataExporter::autoSaveMultiConfig(
+        dir.path(), results, configMap, "end", -5, &errorMsg);
+
+    QVERIFY2(errorMsg.isEmpty(), qPrintable(errorMsg));
+    QCOMPARE(saved.size(), 2);
+    const QString firstName = QFileInfo(saved[0]).fileName();
+    const QString secondName = QFileInfo(saved[1]).fileName();
+    QVERIFY2(firstName.startsWith("-5-data_"), qPrintable(firstName));
+    QVERIFY2(secondName.startsWith("-4-data_"), qPrintable(secondName));
+    QVERIFY(!firstName.contains("_session"));
+    QVERIFY(!secondName.contains("_session"));
+    QCOMPARE(exportedDataRowCount(saved[0]), 2);
+    QCOMPARE(exportedDataRowCount(saved[1]), 1);
+}
+
 void StreamParserTest::streamingAutoSaveSplitsAcrossChunkBoundaries() {
     QVector<ConfigEntry> configs = {
         {"data", {}, makeConfig(0x01, true, FieldType::DATA), false},
@@ -364,6 +411,86 @@ void StreamParserTest::streamingAutoSaveSplitsAcrossChunkBoundaries() {
     QCOMPARE(saved.size(), 2);
     QCOMPARE(exportedDataRowCount(saved[0]), 2);
     QCOMPARE(exportedDataRowCount(saved[1]), 1);
+}
+
+void StreamParserTest::streamingAutoSaveUsesConfiguredLeadingSequence() {
+    QVector<ConfigEntry> configs = {
+        {"data", {}, makeConfig(0x01, true, FieldType::DATA), false},
+        {"end", {}, makeConfig(0x04, true, FieldType::DATA), true},
+    };
+
+    QByteArray stream;
+    stream.append(makeFrame(0x01, 0x10));
+    stream.append(makeFrame(0x01, 0x11));
+    stream.append(makeFrame(0x04, 0x40));
+    stream.append(makeFrame(0x01, 0x12));
+    stream.append(makeFrame(0x04, 0x41));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    StreamParser parser;
+    for (const auto &config : configs)
+        parser.addConfig(config);
+    parser.setAutoSaveDir(dir.path());
+    parser.setAutoSaveSequenceStart(-5);
+
+    QStringList saved;
+    connect(&parser, &StreamParser::autoSaveCompleted, this,
+            [&saved](const QStringList &files) { saved.append(files); });
+
+    parser.feedData(stream);
+
+    QCOMPARE(saved.size(), 2);
+    const QString firstName = QFileInfo(saved[0]).fileName();
+    const QString secondName = QFileInfo(saved[1]).fileName();
+    QVERIFY2(firstName.startsWith("-5-data_"), qPrintable(firstName));
+    QVERIFY2(secondName.startsWith("-4-data_"), qPrintable(secondName));
+    QVERIFY(!firstName.contains("_session"));
+    QVERIFY(!secondName.contains("_session"));
+    QCOMPARE(exportedDataRowCount(saved[0]), 2);
+    QCOMPARE(exportedDataRowCount(saved[1]), 1);
+}
+
+void StreamParserTest::streamingAutoSaveSequenceIsPerParserInstance() {
+    QVector<ConfigEntry> configs = {
+        {"data", {}, makeConfig(0x01, true, FieldType::DATA), false},
+        {"end", {}, makeConfig(0x04, true, FieldType::DATA), true},
+    };
+
+    QByteArray stream;
+    stream.append(makeFrame(0x01, 0x10));
+    stream.append(makeFrame(0x04, 0x40));
+
+    auto savedFiles = [&](const QString &dirPath) {
+        StreamParser parser;
+        for (const auto &config : configs)
+            parser.addConfig(config);
+        parser.setAutoSaveDir(dirPath);
+        parser.setAutoSaveSequenceStart(5);
+
+        QStringList saved;
+        connect(&parser, &StreamParser::autoSaveCompleted, this,
+                [&saved](const QStringList &files) { saved.append(files); });
+        parser.feedData(stream);
+        return saved;
+    };
+
+    QTemporaryDir firstDir;
+    QTemporaryDir secondDir;
+    QVERIFY(firstDir.isValid());
+    QVERIFY(secondDir.isValid());
+
+    const QStringList firstSaved = savedFiles(firstDir.path());
+    const QStringList secondSaved = savedFiles(secondDir.path());
+    QCOMPARE(firstSaved.size(), 1);
+    QCOMPARE(secondSaved.size(), 1);
+
+    const QString firstName = QFileInfo(firstSaved[0]).fileName();
+    const QString secondName = QFileInfo(secondSaved[0]).fileName();
+
+    QVERIFY2(firstName.startsWith("5-data_"), qPrintable(firstName));
+    QVERIFY2(secondName.startsWith("5-data_"), qPrintable(secondName));
 }
 
 void StreamParserTest::generatedFileStreamingMatchesBatchAutoSave() {

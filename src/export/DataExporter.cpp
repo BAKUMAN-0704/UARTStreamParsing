@@ -77,19 +77,29 @@ QStringList DataExporter::autoSaveMultiConfig(
     const QMap<QString, QVector<ParsedFrame>> &framesByConfig,
     const QMap<QString, FrameConfig> &configMap,
     const QString &endFrameConfigName, QString *errorMsg) {
+    return autoSaveMultiConfig(dirPath, framesByConfig, configMap, endFrameConfigName, 1,
+                               errorMsg);
+}
+
+QStringList DataExporter::autoSaveMultiConfig(
+    const QString &dirPath,
+    const QMap<QString, QVector<ParsedFrame>> &framesByConfig,
+    const QMap<QString, FrameConfig> &configMap,
+    const QString &endFrameConfigName, int sequenceStart, QString *errorMsg) {
     QDir dir(dirPath);
     if (!dir.exists())
         dir.mkpath(".");
 
     QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
     QStringList savedFiles;
+    int nextSequence = sequenceStart;
 
     auto saveGroup = [&](const QString &name, const QVector<ParsedFrame> &frames,
-                         const QString &suffix) -> bool {
+                         int sequence) -> bool {
         if (name == endFrameConfigName || frames.isEmpty() || !configMap.contains(name))
             return true;
 
-        QString fileName = name + "_" + timestamp + suffix + ".txt";
+        QString fileName = QString("%1-%2_%3.txt").arg(sequence).arg(name).arg(timestamp);
         QString fullPath = dir.absoluteFilePath(fileName);
 
         QString err;
@@ -112,20 +122,18 @@ QStringList DataExporter::autoSaveMultiConfig(
 
     if (!endOffsets.isEmpty()) {
         int sessionStart = -1;
-        int sessionIndex = 1;
         for (int endOffset : endOffsets) {
+            const int sequence = nextSequence++;
             for (auto it = framesByConfig.constBegin(); it != framesByConfig.constEnd(); ++it) {
                 QVector<ParsedFrame> sessionFrames;
                 for (const auto &frame : it.value()) {
                     if (frame.offsetInStream > sessionStart && frame.offsetInStream < endOffset)
                         sessionFrames.append(frame);
                 }
-                if (!saveGroup(it.key(), sessionFrames,
-                               QString("_session%1").arg(sessionIndex)))
+                if (!saveGroup(it.key(), sessionFrames, sequence))
                     return savedFiles;
             }
             sessionStart = endOffset;
-            ++sessionIndex;
         }
 
         bool hasRemaining = false;
@@ -143,14 +151,14 @@ QStringList DataExporter::autoSaveMultiConfig(
         }
 
         if (hasRemaining) {
+            const int sequence = nextSequence++;
             for (auto it = framesByConfig.constBegin(); it != framesByConfig.constEnd(); ++it) {
                 QVector<ParsedFrame> sessionFrames;
                 for (const auto &frame : it.value()) {
                     if (frame.offsetInStream > sessionStart)
                         sessionFrames.append(frame);
                 }
-                if (!saveGroup(it.key(), sessionFrames,
-                               QString("_session%1").arg(sessionIndex)))
+                if (!saveGroup(it.key(), sessionFrames, sequence))
                     return savedFiles;
             }
         }
@@ -158,8 +166,9 @@ QStringList DataExporter::autoSaveMultiConfig(
         return savedFiles;
     }
 
+    const int sequence = nextSequence++;
     for (auto it = framesByConfig.constBegin(); it != framesByConfig.constEnd(); ++it) {
-        if (!saveGroup(it.key(), it.value(), QString()))
+        if (!saveGroup(it.key(), it.value(), sequence))
             return savedFiles;
     }
 

@@ -48,6 +48,9 @@ public:
     // Auto-save
     void setAutoSaveDir(const QString &dir) { m_autoSaveDir = dir; }
     QString autoSaveDir() const { return m_autoSaveDir; }
+    void setAutoSaveSequenceStart(int start);
+    int autoSaveSequenceStart() const { return m_autoSaveSequenceStart; }
+    void resetAutoSaveSequence();
     void flushAndSave(); // save remaining accumulated frames
 
 Q_SIGNALS:
@@ -80,6 +83,8 @@ private:
     QMap<QString, QVector<ParsedFrame>> m_accumulatedFrames;
     QMap<QString, int> m_frameCounters;
     QString m_autoSaveDir;
+    int m_autoSaveSequenceStart = 1;
+    int m_nextAutoSaveSequence = 1;
     int m_maxHeaderSize = 0;
     bool m_streamingMode = false;
 

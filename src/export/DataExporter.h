@@ -21,6 +21,13 @@ public:
         const QMap<QString, FrameConfig> &configMap,
         const QString &endFrameConfigName = QString(),
         QString *errorMsg = nullptr);
+    static QStringList autoSaveMultiConfig(
+        const QString &dirPath,
+        const QMap<QString, QVector<ParsedFrame>> &framesByConfig,
+        const QMap<QString, FrameConfig> &configMap,
+        const QString &endFrameConfigName,
+        int sequenceStart,
+        QString *errorMsg = nullptr);
 };
 
 #endif // DATAEXPORTER_H
